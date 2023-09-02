@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 
+concread = "^0.4.0"
 clap = { version = "4.1", features = ["derive", "env"] }
 futures-util = { version = "^0.3.21", features = ["sink"] }
 hashbrown = { version = "0.14", features = ["serde"] }

@@ -4,9 +4,10 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::{FramedRead, FramedWrite};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, span, trace, warn, Level};
 
 use openssl::ssl::{Ssl, SslConnector};
+use std::hash::Hash;
 use std::pin::Pin;
 use std::time::Duration;
 use tokio::io::{ReadHalf, WriteHalf};
@@ -16,10 +17,27 @@ use tokio_openssl::SslStream;
 use ldap3_proto::proto::*;
 use ldap3_proto::LdapCodec;
 
+use std::time::Instant;
+
 use crate::{AppState, DnConfig};
 
 type CR = ReadHalf<SslStream<TcpStream>>;
 type CW = WriteHalf<SslStream<TcpStream>>;
+
+#[derive(Debug, Clone, Hash, PartialOrd, Ord, Eq, PartialEq)]
+pub struct SearchCacheKey {
+    bind_dn: String,
+    search: LdapSearchRequest,
+    ctrl: Vec<LdapControl>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CachedValue {
+    valid_until: Instant,
+    entries: Vec<(LdapSearchResultEntry, Vec<LdapControl>)>,
+    result: LdapResult,
+    ctrl: Vec<LdapControl>,
+}
 
 enum ClientState {
     Unbound,
@@ -69,6 +87,9 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                     ctrl,
                 },
             ) => {
+                let span = span!(Level::INFO, "bind");
+                let _enter = span.enter();
+
                 trace!(?lbr);
                 // Is the requested bind dn valid per our map?
                 let config = match app_state.binddn_map.get(&lbr.dn) {
@@ -169,6 +190,9 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                     ctrl,
                 },
             ) => {
+                let span = span!(Level::INFO, "search");
+                let _enter = span.enter();
+
                 // Pre check if the search is allowed for this dn / scope / filter
                 if config.allowed_queries.is_empty() {
                     // All queries are allowed.
@@ -217,18 +241,66 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                 //
                 // Which is a lot, but it's everything that controls to results to
                 // ensure we don't introduce corruption.
-                let (entries, result, ctrl) = match client.search(sr, ctrl).await {
-                    Ok(data) => data,
-                    Err(e) => {
-                        error!(?e, "A client search error has occured");
-                        let resp_msg = bind_operror(msgid, "unable to search");
-                        if w.send(resp_msg).await.is_err() {
-                            error!("Unable to send response");
+
+                let now = Instant::now();
+
+                // get the read txn.
+                let mut cache_read_txn = app_state.cache.read();
+
+                let cache_key = SearchCacheKey {
+                    bind_dn: dn.clone(),
+                    search: sr.clone(),
+                    ctrl: ctrl.clone(),
+                };
+                debug!(?cache_key);
+
+                let maybe_results = cache_read_txn.get(&cache_key).and_then(|cache_value| {
+                    if cache_value.valid_until > now {
+                        Some(cache_value.clone())
+                    } else {
+                        debug!("Cache item expired");
+                        None
+                    }
+                });
+
+                let was_cache_miss = maybe_results.is_none();
+
+                debug!("cache hit {}", !was_cache_miss);
+
+                let (entries, result, ctrl) = match maybe_results {
+                    Some(CachedValue {
+                        valid_until: _,
+                        entries,
+                        result,
+                        ctrl,
+                    }) => (entries, result, ctrl),
+                    None => {
+                        match client.search(sr, ctrl).await {
+                            Ok(data) => data,
+                            Err(e) => {
+                                error!(?e, "A client search error has occured");
+                                let resp_msg = bind_operror(msgid, "unable to search");
+                                if w.send(resp_msg).await.is_err() {
+                                    error!("Unable to send response");
+                                }
+                                // Always bail.
+                                break;
+                            }
                         }
-                        // Always bail.
-                        break;
                     }
                 };
+
+                // Update cache if needed.
+                if was_cache_miss {
+                    let cache_value = CachedValue {
+                        valid_until: now + app_state.cache_timeout,
+                        entries: entries.clone(),
+                        result: result.clone(),
+                        ctrl: ctrl.clone(),
+                    };
+                    debug!("Adding to cache");
+                    cache_read_txn.insert(cache_key, cache_value);
+                }
 
                 for (entry, ctrl) in entries {
                     if w.send(LdapMsg {
@@ -255,6 +327,9 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                     error!("Unable to send response");
                     break;
                 }
+
+                // Try and quiesce now.
+                app_state.cache.try_quiesce();
 
                 // No state change
                 None

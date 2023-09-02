@@ -24,6 +24,7 @@ use std::io::Read;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::broadcast;
 use tracing_forest::{traits::*, util::*};
 use url::Url;
@@ -34,7 +35,11 @@ use tokio::net::TcpListener;
 use tokio_openssl::SslStream;
 use tokio_util::codec::{FramedRead, FramedWrite};
 
+use concread::arcache::{ARCache, ARCacheBuilder};
+
 mod proxy;
+
+use crate::proxy::{CachedValue, SearchCacheKey};
 
 const DEFAULT_CONFIG_PATH: &str = "/etc/kanidm/ldap-proxy";
 
@@ -71,6 +76,8 @@ pub(crate) struct AppState {
     pub addrs: Vec<SocketAddr>,
     // Cache later here.
     pub binddn_map: BTreeMap<String, DnConfig>,
+    pub cache: ARCache<SearchCacheKey, CachedValue>,
+    pub cache_timeout: Duration,
 }
 
 async fn ldaps_acceptor(
@@ -242,10 +249,19 @@ async fn setup(opt: &Opt) {
 
     let tls_params = tls_builder.build();
 
+    let Some(cache) = ARCacheBuilder::new().set_size(512, 0).build() else {
+        error!("Unable to build query cache");
+        return;
+    };
+
+    let cache_timeout = Duration::from_secs(600);
+
     let app_state = Arc::new(AppState {
         tls_params,
         addrs,
         binddn_map: sync_config.binddn_map.clone(),
+        cache,
+        cache_timeout,
     });
 
     // Setup the TLS server parameters
