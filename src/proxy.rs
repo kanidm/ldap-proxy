@@ -218,8 +218,56 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                 // No state change
                 None
             }
-            //  - Whoami
+            // Extended Requests - Generally has whoami.
+            (
+                ClientState::Authenticated {
+                    dn,
+                    config: _,
+                    client: _,
+                },
+                LdapMsg {
+                    msgid,
+                    op: LdapOp::ExtendedRequest(ler),
+                    ctrl: _,
+                },
+            ) => {
+                let op = match ler.name.as_str() {
+                    "1.3.6.1.4.1.4203.1.11.3" => LdapOp::ExtendedResponse(LdapExtendedResponse {
+                        res: LdapResult {
+                            code: LdapResultCode::Success,
+                            matcheddn: "".to_string(),
+                            message: "".to_string(),
+                            referral: vec![],
+                        },
+                        name: None,
+                        value: Some(Vec::from(dn.as_str())),
+                    }),
+                    _ => LdapOp::ExtendedResponse(LdapExtendedResponse {
+                        res: LdapResult {
+                            code: LdapResultCode::OperationsError,
+                            matcheddn: "".to_string(),
+                            message: "".to_string(),
+                            referral: vec![],
+                        },
+                        name: None,
+                        value: None,
+                    }),
+                };
 
+                if w.send(LdapMsg {
+                    msgid,
+                    op,
+                    ctrl: vec![],
+                })
+                .await
+                .is_err()
+                {
+                    error!("Unable to send response");
+                    break;
+                }
+
+                None
+            }
             // Unknown message handler.
             (_, msg) => {
                 debug!(?msg);
