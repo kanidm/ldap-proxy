@@ -1,5 +1,7 @@
 use clap::Parser;
+use hashbrown::HashSet;
 use ldap3_proto::LdapCodec;
+use ldap3_proto::{LdapFilter, LdapSearchScope};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -48,7 +50,8 @@ struct Config {
 
 #[derive(Debug, Clone, Deserialize)]
 struct DnConfig {
-    test: bool,
+    #[serde(default)]
+    allowed_queries: HashSet<(String, LdapSearchScope, LdapFilter)>,
 }
 
 pub(crate) struct AppState {

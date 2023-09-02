@@ -3,18 +3,26 @@
 A fast, simple, in-memory caching proxy for ldap that allows limiting of dn's and their searches.
 
 ```
-tls_chain =
-tls_key =
+bind = "127.0.0.1:3636"
+tls_chain = "/tmp/chain.pem"
+tls_key = "/tmp/key.pem"
 
-ldap_ca =
-ldap_url =
+ldap_ca = "/tmp/ldap-ca.pem"
+ldap_url = "ldaps://idm.example.com"
 
-[anonymous]
-
-[cn=Administrator]
-allow_filter = [
-    "(objectClass=*)"
+# "" is the anonymous dn
+[""]
+allowed_queries = [
+    ["", "base", "(objectclass=*)"],
+    ["o=example", "subtree", "(objectclass=*)"],
 ]
 
+[cn=Administrator]
+# If you don't specify allowed queries, all queries are granted
+
+[cn=user]
+allowed_queries = [
+    ["", "base", "(objectclass=*)"],
+]
 
 ```

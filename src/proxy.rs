@@ -53,7 +53,7 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
     client_address: SocketAddr,
     app_state: Arc<AppState>,
 ) {
-    debug!("Accept from {}", client_address);
+    info!("Accept from {}", client_address);
 
     // We always start unbound.
     let mut state = ClientState::Unbound;
@@ -137,6 +137,7 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                 };
 
                 if valid {
+                    info!("Successful bind for {}", dn);
                     Some(ClientState::Authenticated { dn, config, client })
                 } else {
                     None
@@ -169,13 +170,54 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                     ctrl,
                 },
             ) => {
-                // Pre check if the search is allowed for this dn / filter
+                // Pre check if the search is allowed for this dn / scope / filter
+                if config.allowed_queries.is_empty() {
+                    // All queries are allowed.
+                    debug!("All queries are allowed");
+                } else {
+                    // Let's check the query details.
+                    let allow_key = (sr.base.clone(), sr.scope.clone(), sr.filter.clone());
 
-                // If not, send an empty result.
-
-                // If yes, continue.
+                    if config.allowed_queries.contains(&allow_key) {
+                        // Good to proceed.
+                        debug!("Query is granted");
+                    } else {
+                        warn!(?allow_key, "Requested query is not allowed for {}", dn);
+                        // If not, send an empty result.
+                        if w.send(LdapMsg {
+                            msgid,
+                            op: LdapOp::SearchResultDone(LdapResult {
+                                code: LdapResultCode::Success,
+                                matcheddn: "".to_string(),
+                                message: "".to_string(),
+                                referral: vec![],
+                            }),
+                            ctrl,
+                        })
+                        .await
+                        .is_err()
+                        {
+                            error!("Unable to send response");
+                        }
+                        // Always bail.
+                        break;
+                    }
+                };
 
                 // This is done like this to facilitate a cache mechanism in future.
+                //
+                // Cache will need to key on:
+                //    bind_dn
+                //    base
+                //    scope
+                //    deref aliases
+                //    types only
+                //    filter
+                //    attrs
+                //   search controls
+                //
+                // Which is a lot, but it's everything that controls to results to
+                // ensure we don't introduce corruption.
                 let (entries, result, ctrl) = match client.search(sr, ctrl).await {
                     Ok(data) => data,
                     Err(e) => {
@@ -281,7 +323,7 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
             state = next_state;
         }
     }
-    debug!("Disconnect for {}", client_address);
+    info!("Disconnect for {}", client_address);
 }
 
 #[derive(Debug, Clone)]
@@ -353,12 +395,12 @@ impl BasicLdapClient {
                 LdapError::TlsError
             })?;
 
-        info!("tls configured");
         let (r, w) = tokio::io::split(tlsstream);
 
         let w = FramedWrite::new(w, LdapCodec);
         let r = FramedRead::new(r, LdapCodec);
 
+        info!("Connected to remote ldap server");
         Ok(BasicLdapClient {
             r,
             w,
