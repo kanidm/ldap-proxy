@@ -5,7 +5,6 @@ use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::{FramedRead, FramedWrite};
 use tracing::{debug, error, info, trace, warn};
-use url::Url;
 
 use openssl::ssl::{Ssl, SslConnector};
 use std::pin::Pin;
@@ -33,7 +32,7 @@ enum ClientState {
 
 fn bind_operror(msgid: i32, msg: &str) -> LdapMsg {
     LdapMsg {
-        msgid: msgid,
+        msgid,
         op: LdapOp::BindResponse(LdapBindResponse {
             res: LdapResult {
                 code: LdapResultCode::OperationsError,
@@ -147,7 +146,7 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
             (
                 _,
                 LdapMsg {
-                    msgid,
+                    msgid: _,
                     op: LdapOp::UnbindRequest,
                     ctrl: _,
                 },
@@ -388,7 +387,7 @@ impl BasicLdapClient {
                 LdapError::TlsError
             })?;
 
-        let _ = SslStream::connect(Pin::new(&mut tlsstream))
+        SslStream::connect(Pin::new(&mut tlsstream))
             .await
             .map_err(|e| {
                 error!(?e, "openssl");

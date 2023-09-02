@@ -12,6 +12,7 @@ futures-util = { version = "^0.3.21", features = ["sink"] }
 hashbrown = { version = "0.14", features = ["serde"] }
 openssl = "^0.10.57"
 serde = { version = "^1.0.188", features = ["derive"] }
+tikv-jemallocator = "0.5"
 tokio = { version = "^1.24.2", features = ["rt", "rt-multi-thread", "macros", "net", "signal", "io-util"] }
 tokio-util = { version = "^0.7.8", features = ["codec"] }
 tokio-openssl = "^0.6.3"

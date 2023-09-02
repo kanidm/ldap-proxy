@@ -1,3 +1,18 @@
+#![deny(warnings)]
+#![warn(unused_extern_crates)]
+#![deny(clippy::todo)]
+#![deny(clippy::unimplemented)]
+#![deny(clippy::unwrap_used)]
+#![deny(clippy::expect_used)]
+#![deny(clippy::panic)]
+#![deny(clippy::unreachable)]
+#![deny(clippy::await_holding_lock)]
+#![deny(clippy::needless_pass_by_value)]
+#![deny(clippy::trivially_copy_pass_by_ref)]
+
+#[global_allocator]
+static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 use clap::Parser;
 use hashbrown::HashSet;
 use ldap3_proto::LdapCodec;
@@ -13,11 +28,8 @@ use tokio::sync::broadcast;
 use tracing_forest::{traits::*, util::*};
 use url::Url;
 
-use openssl::ssl::{
-    Ssl, SslAcceptor, SslAcceptorBuilder, SslConnector, SslFiletype, SslMethod, SslVerifyMode,
-};
+use openssl::ssl::{Ssl, SslAcceptor, SslConnector, SslFiletype, SslMethod, SslVerifyMode};
 use openssl::x509::X509;
-use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio_openssl::SslStream;
 use tokio_util::codec::{FramedRead, FramedWrite};
