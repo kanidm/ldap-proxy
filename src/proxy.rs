@@ -171,9 +171,46 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
             ) => {
                 // Pre check if the search is allowed for this dn / filter
 
-                // If not, send and empty result.
+                // If not, send an empty result.
 
                 // If yes, continue.
+
+                // This is done like this to facilitate a cache mechanism in future.
+                let (entries, result, ctrl) = match client.search(sr, ctrl).await {
+                    Ok(data) => data,
+                    Err(e) => {
+                        error!(?e, "A client search error has occured");
+                        let resp_msg = bind_operror(msgid, "unable to search");
+                        if w.send(resp_msg).await.is_err() {
+                            error!("Unable to send response");
+                        }
+                        // Always bail.
+                        break;
+                    }
+                };
+
+                for (entry, ctrl) in entries {
+                    if w.send(LdapMsg {
+                        msgid,
+                        op: LdapOp::SearchResultEntry(entry),
+                        ctrl
+                    }).await.is_err() {
+                        error!("Unable to send response");
+                        break;
+                    }
+                }
+
+                if w.send(LdapMsg {
+                    msgid,
+                    op: LdapOp::SearchResultDone(result),
+                    ctrl
+                }).await.is_err() {
+                    error!("Unable to send response");
+                    break;
+                }
+
+                // No state change
+                None
             }
             //  - Whoami
 
@@ -181,8 +218,7 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
             (_, msg) => {
                 debug!(?msg);
                 // Return a disconnect.
-
-                todo!();
+                break;
             }
         };
 
@@ -281,10 +317,10 @@ impl BasicLdapClient {
         lbr: LdapBindRequest,
         ctrl: Vec<LdapControl>,
     ) -> Result<(LdapBindResponse, Vec<LdapControl>), LdapError> {
-        let msgid = self.next_msgid();
+        let ck_msgid = self.next_msgid();
 
         let msg = LdapMsg {
-            msgid,
+            msgid: ck_msgid,
             op: LdapOp::BindRequest(lbr),
             ctrl,
         };
@@ -299,7 +335,14 @@ impl BasicLdapClient {
                 msgid,
                 op: LdapOp::BindResponse(bind_resp),
                 ctrl,
-            })) => Ok((bind_resp, ctrl)),
+            })) => {
+                if msgid == ck_msgid {
+                    Ok((bind_resp, ctrl))
+                } else {
+                    error!("invalid msgid, sequence error.");
+                    Err(LdapError::InvalidProtocolState)
+                }
+            }
             Some(Ok(msg)) => {
                 trace!(?msg);
                 Err(LdapError::InvalidProtocolState)
@@ -311,6 +354,68 @@ impl BasicLdapClient {
             None => {
                 error!("connection closed");
                 Err(LdapError::Transport)
+            }
+        }
+    }
+
+    pub async fn search(
+        &mut self,
+        sr: LdapSearchRequest,
+        ctrl: Vec<LdapControl>,
+    ) -> Result<(Vec<(LdapSearchResultEntry, Vec<LdapControl>)>, LdapResult, Vec<LdapControl>), LdapError> {
+        let ck_msgid = self.next_msgid();
+
+        let msg = LdapMsg {
+            msgid: ck_msgid,
+            op: LdapOp::SearchRequest(sr),
+            ctrl,
+        };
+
+        self.w.send(msg).await.map_err(|e| {
+            error!(?e, "unable to transmit to ldap server");
+            LdapError::Transport
+        })?;
+
+        let mut entries = Vec::new();
+        loop {
+            match self.r.next().await {
+                // This terminates the iteration of entries.
+                Some(Ok(LdapMsg {
+                    msgid,
+                    op: LdapOp::SearchResultDone(search_res),
+                    ctrl,
+                })) => {
+                    if msgid == ck_msgid {
+                        break Ok((entries, search_res, ctrl))
+                    } else {
+                        error!("invalid msgid, sequence error.");
+                        break Err(LdapError::InvalidProtocolState)
+                    }
+                }
+                Some(Ok(LdapMsg {
+                    msgid,
+                    op: LdapOp::SearchResultEntry(search_entry),
+                    ctrl,
+                })) => {
+                    if msgid == ck_msgid {
+                        entries.push((search_entry, ctrl))
+                    } else {
+                        error!("invalid msgid, sequence error.");
+                        break Err(LdapError::InvalidProtocolState)
+                    }
+                }
+                Some(Ok(msg)) => {
+                    trace!(?msg);
+                    break Err(LdapError::InvalidProtocolState)
+                }
+                Some(Err(e)) => {
+                    error!(?e, "unable to receive from ldap server");
+                    break Err(LdapError::Transport)
+                }
+                None => {
+                    error!("connection closed");
+                    break Err(LdapError::Transport)
+                }
             }
         }
     }
