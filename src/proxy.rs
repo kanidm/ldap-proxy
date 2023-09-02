@@ -60,7 +60,7 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
 
     // Start to wait for incomming packets
     while let Some(Ok(protomsg)) = r.next().await {
-        let next_state = match (&state, protomsg) {
+        let next_state = match (&mut state, protomsg) {
             // Doesn't matter what state we are in, any bind will trigger this process.
             (
                 _,
@@ -193,8 +193,11 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                     if w.send(LdapMsg {
                         msgid,
                         op: LdapOp::SearchResultEntry(entry),
-                        ctrl
-                    }).await.is_err() {
+                        ctrl,
+                    })
+                    .await
+                    .is_err()
+                    {
                         error!("Unable to send response");
                         break;
                     }
@@ -203,8 +206,11 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                 if w.send(LdapMsg {
                     msgid,
                     op: LdapOp::SearchResultDone(result),
-                    ctrl
-                }).await.is_err() {
+                    ctrl,
+                })
+                .await
+                .is_err()
+                {
                     error!("Unable to send response");
                     break;
                 }
@@ -362,7 +368,14 @@ impl BasicLdapClient {
         &mut self,
         sr: LdapSearchRequest,
         ctrl: Vec<LdapControl>,
-    ) -> Result<(Vec<(LdapSearchResultEntry, Vec<LdapControl>)>, LdapResult, Vec<LdapControl>), LdapError> {
+    ) -> Result<
+        (
+            Vec<(LdapSearchResultEntry, Vec<LdapControl>)>,
+            LdapResult,
+            Vec<LdapControl>,
+        ),
+        LdapError,
+    > {
         let ck_msgid = self.next_msgid();
 
         let msg = LdapMsg {
@@ -386,10 +399,10 @@ impl BasicLdapClient {
                     ctrl,
                 })) => {
                     if msgid == ck_msgid {
-                        break Ok((entries, search_res, ctrl))
+                        break Ok((entries, search_res, ctrl));
                     } else {
                         error!("invalid msgid, sequence error.");
-                        break Err(LdapError::InvalidProtocolState)
+                        break Err(LdapError::InvalidProtocolState);
                     }
                 }
                 Some(Ok(LdapMsg {
@@ -401,20 +414,20 @@ impl BasicLdapClient {
                         entries.push((search_entry, ctrl))
                     } else {
                         error!("invalid msgid, sequence error.");
-                        break Err(LdapError::InvalidProtocolState)
+                        break Err(LdapError::InvalidProtocolState);
                     }
                 }
                 Some(Ok(msg)) => {
                     trace!(?msg);
-                    break Err(LdapError::InvalidProtocolState)
+                    break Err(LdapError::InvalidProtocolState);
                 }
                 Some(Err(e)) => {
                     error!(?e, "unable to receive from ldap server");
-                    break Err(LdapError::Transport)
+                    break Err(LdapError::Transport);
                 }
                 None => {
                     error!("connection closed");
-                    break Err(LdapError::Transport)
+                    break Err(LdapError::Transport);
                 }
             }
         }
