@@ -26,3 +26,12 @@ allowed_queries = [
 ]
 
 ```
+
+
+## TODO:
+
+* Allow control of cache size management.
+* Allow configuration of cache entry timeouts.
+* Allow configuration of client timeouts.
+* Improve handling of client timeout from server.
+
