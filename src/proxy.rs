@@ -4,27 +4,25 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::{FramedRead, FramedWrite};
-use tracing::{debug, error, trace, warn, info};
+use tracing::{debug, error, info, trace, warn};
 use url::Url;
 
-use std::pin::Pin;
 use openssl::ssl::{Ssl, SslConnector};
+use std::pin::Pin;
 use std::time::Duration;
+use tokio::io::{ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
 use tokio_openssl::SslStream;
-use tokio::io::{ReadHalf, WriteHalf};
 
 use ldap3_proto::proto::*;
 use ldap3_proto::LdapCodec;
 
 use crate::{AppState, DnConfig};
 
-
 type CR = ReadHalf<SslStream<TcpStream>>;
 type CW = WriteHalf<SslStream<TcpStream>>;
 
-enum ClientState
-{
+enum ClientState {
     Unbound,
     Authenticated {
         dn: String,
@@ -94,11 +92,41 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                 // now setup the client for their session, and anything else we
                 // need to configure.
 
+                let dn = lbr.dn.clone();
+
                 // We need the client to connect *and* bind to proceed here!
-                let client = match BasicLdapClient::build(&app_state.addrs, &app_state.tls_params).await {
-                    Ok(c) => c,
+                let mut client =
+                    match BasicLdapClient::build(&app_state.addrs, &app_state.tls_params).await {
+                        Ok(c) => c,
+                        Err(e) => {
+                            error!(?e, "A client build error has occured.");
+                            let resp_msg = bind_operror(msgid, "unable to bind");
+                            if w.send(resp_msg).await.is_err() {
+                                error!("Unable to send response");
+                            }
+                            // Always bail.
+                            break;
+                        }
+                    };
+
+                let valid = match client.bind(lbr, ctrl).await {
+                    Ok((bind_resp, ctrl)) => {
+                        // Almost there, lets check the bind result.
+                        let valid = bind_resp.res.code == LdapResultCode::Success;
+
+                        let resp_msg = LdapMsg {
+                            msgid,
+                            op: LdapOp::BindResponse(bind_resp),
+                            ctrl,
+                        };
+                        if w.send(resp_msg).await.is_err() {
+                            error!("Unable to send response");
+                            break;
+                        }
+                        valid
+                    }
                     Err(e) => {
-                        error!(?e, "A client build error has occured.");
+                        error!(?e, "A client bind error has occured");
                         let resp_msg = bind_operror(msgid, "unable to bind");
                         if w.send(resp_msg).await.is_err() {
                             error!("Unable to send response");
@@ -108,9 +136,11 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                     }
                 };
 
-                let dn = lbr.dn.clone();
-
-                Some(ClientState::Authenticated { dn, config, client })
+                if valid {
+                    Some(ClientState::Authenticated { dn, config, client })
+                } else {
+                    None
+                }
             }
             // Unbinds are always actioned.
             (
@@ -125,16 +155,38 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                 break;
             }
 
-            //
+            // Authenticated message handler.
+            //  - Search
+            (
+                ClientState::Authenticated {
+                    dn,
+                    config,
+                    ref mut client,
+                },
+                LdapMsg {
+                    msgid,
+                    op: LdapOp::SearchRequest(sr),
+                    ctrl,
+                },
+            ) => {
+                // Pre check if the search is allowed for this dn / filter
+
+                // If not, send and empty result.
+
+                // If yes, continue.
+            }
+            //  - Whoami
 
             // Unknown message handler.
             (_, msg) => {
                 debug!(?msg);
+                // Return a disconnect.
+
                 todo!();
             }
         };
 
-        if let Some(mut next_state) = next_state {
+        if let Some(next_state) = next_state {
             // Update the client state, dropping any former state.
             state = next_state;
         }
@@ -146,7 +198,8 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
 enum LdapError {
     TlsError,
     ConnectError,
-
+    Transport,
+    InvalidProtocolState,
 }
 
 struct BasicLdapClient {
@@ -155,9 +208,16 @@ struct BasicLdapClient {
     msg_counter: i32,
 }
 
-impl BasicLdapClient
-{
-    pub async fn build(addrs: &[SocketAddr], tls_connector: &SslConnector) -> Result<Self, LdapError> {
+impl BasicLdapClient {
+    fn next_msgid(&mut self) -> i32 {
+        self.msg_counter += 1;
+        self.msg_counter
+    }
+
+    pub async fn build(
+        addrs: &[SocketAddr],
+        tls_connector: &SslConnector,
+    ) -> Result<Self, LdapError> {
         let timeout = Duration::from_secs(5);
 
         let mut aiter = addrs.iter();
@@ -209,12 +269,49 @@ impl BasicLdapClient
         let w = FramedWrite::new(w, LdapCodec);
         let r = FramedRead::new(r, LdapCodec);
 
-        // Now we have to do the initial bind.
-
         Ok(BasicLdapClient {
             r,
             w,
             msg_counter: 0,
         })
+    }
+
+    pub async fn bind(
+        &mut self,
+        lbr: LdapBindRequest,
+        ctrl: Vec<LdapControl>,
+    ) -> Result<(LdapBindResponse, Vec<LdapControl>), LdapError> {
+        let msgid = self.next_msgid();
+
+        let msg = LdapMsg {
+            msgid,
+            op: LdapOp::BindRequest(lbr),
+            ctrl,
+        };
+
+        self.w.send(msg).await.map_err(|e| {
+            error!(?e, "unable to transmit to ldap server");
+            LdapError::Transport
+        })?;
+
+        match self.r.next().await {
+            Some(Ok(LdapMsg {
+                msgid,
+                op: LdapOp::BindResponse(bind_resp),
+                ctrl,
+            })) => Ok((bind_resp, ctrl)),
+            Some(Ok(msg)) => {
+                trace!(?msg);
+                Err(LdapError::InvalidProtocolState)
+            }
+            Some(Err(e)) => {
+                error!(?e, "unable to receive from ldap server");
+                Err(LdapError::Transport)
+            }
+            None => {
+                error!("connection closed");
+                Err(LdapError::Transport)
+            }
+        }
     }
 }
