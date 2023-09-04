@@ -263,7 +263,10 @@ async fn setup(opt: &Opt) {
 
     let tls_params = tls_builder.build();
 
-    let Some(cache) = ARCacheBuilder::new().set_size(sync_config.cache_bytes, 0).build() else {
+    let Some(cache) = ARCacheBuilder::new()
+        .set_size(sync_config.cache_bytes, 0)
+        .build()
+    else {
         error!("Unable to build query cache");
         return;
     };

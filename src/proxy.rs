@@ -42,10 +42,7 @@ pub struct CachedValue {
 
 impl CachedValue {
     fn size(&self) -> usize {
-        std::mem::size_of::<Self>() +
-            self.entries.iter()
-                .map(|(e, _)| e.size())
-                .sum()
+        std::mem::size_of::<Self>() + self.entries.iter().map(|(e, _)| e.size()).sum::<usize>()
     }
 }
 
@@ -309,7 +306,7 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                         ctrl: ctrl.clone(),
                     };
                     if let Some(cache_value_size) = NonZeroUsize::new(cache_value.size()) {
-                        debug!("Adding to cache");
+                        debug!("Adding entry of size {} to cache", cache_value_size);
                         cache_read_txn.insert_sized(cache_key, cache_value, cache_value_size);
                     } else {
                         error!("Invalid entry size, unable to add to cache");

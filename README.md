@@ -33,7 +33,6 @@ allowed_queries = [
 
 ## TODO:
 
-* Allow configuration of cache entry timeouts.
 * Allow configuration of client timeouts.
 * Improve handling of client timeout from server.
 
