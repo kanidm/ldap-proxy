@@ -7,6 +7,9 @@ bind = "127.0.0.1:3636"
 tls_chain = "/tmp/chain.pem"
 tls_key = "/tmp/key.pem"
 
+# cache_bytes = 137438953472
+# cache_entry_timeout = 1800
+
 ldap_ca = "/tmp/ldap-ca.pem"
 ldap_url = "ldaps://idm.example.com"
 

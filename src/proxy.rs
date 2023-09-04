@@ -1,6 +1,7 @@
 use futures_util::sink::SinkExt;
 use futures_util::stream::StreamExt;
 use std::net::SocketAddr;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::{FramedRead, FramedWrite};
@@ -37,6 +38,15 @@ pub struct CachedValue {
     entries: Vec<(LdapSearchResultEntry, Vec<LdapControl>)>,
     result: LdapResult,
     ctrl: Vec<LdapControl>,
+}
+
+impl CachedValue {
+    fn size(&self) -> usize {
+        std::mem::size_of::<Self>() +
+            self.entries.iter()
+                .map(|(e, _)| e.size())
+                .sum()
+    }
 }
 
 enum ClientState {
@@ -298,8 +308,12 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                         result: result.clone(),
                         ctrl: ctrl.clone(),
                     };
-                    debug!("Adding to cache");
-                    cache_read_txn.insert(cache_key, cache_value);
+                    if let Some(cache_value_size) = NonZeroUsize::new(cache_value.size()) {
+                        debug!("Adding to cache");
+                        cache_read_txn.insert_sized(cache_key, cache_value, cache_value_size);
+                    } else {
+                        error!("Invalid entry size, unable to add to cache");
+                    }
                 }
 
                 for (entry, ctrl) in entries {
