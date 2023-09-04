@@ -52,11 +52,25 @@ struct Opt {
     config: PathBuf,
 }
 
+fn default_cache_bytes() -> usize {
+    // 128 MB
+    137438953472
+}
+
+fn default_cache_entry_timeout() -> u64 {
+    1800
+}
+
 #[derive(Debug, Deserialize)]
 struct Config {
     bind: SocketAddr,
     tls_key: PathBuf,
     tls_chain: PathBuf,
+
+    #[serde(default = "default_cache_bytes")]
+    cache_bytes: usize,
+    #[serde(default = "default_cache_entry_timeout")]
+    cache_entry_timeout: u64,
 
     ldap_ca: PathBuf,
     ldap_url: Url,
@@ -77,7 +91,7 @@ pub(crate) struct AppState {
     // Cache later here.
     pub binddn_map: BTreeMap<String, DnConfig>,
     pub cache: ARCache<SearchCacheKey, CachedValue>,
-    pub cache_timeout: Duration,
+    pub cache_entry_timeout: Duration,
 }
 
 async fn ldaps_acceptor(
@@ -249,19 +263,19 @@ async fn setup(opt: &Opt) {
 
     let tls_params = tls_builder.build();
 
-    let Some(cache) = ARCacheBuilder::new().set_size(512, 0).build() else {
+    let Some(cache) = ARCacheBuilder::new().set_size(sync_config.cache_bytes, 0).build() else {
         error!("Unable to build query cache");
         return;
     };
 
-    let cache_timeout = Duration::from_secs(600);
+    let cache_entry_timeout = Duration::from_secs(sync_config.cache_entry_timeout);
 
     let app_state = Arc::new(AppState {
         tls_params,
         addrs,
         binddn_map: sync_config.binddn_map.clone(),
         cache,
-        cache_timeout,
+        cache_entry_timeout,
     });
 
     // Setup the TLS server parameters

@@ -293,7 +293,7 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                 // Update cache if needed.
                 if was_cache_miss {
                     let cache_value = CachedValue {
-                        valid_until: now + app_state.cache_timeout,
+                        valid_until: now + app_state.cache_entry_timeout,
                         entries: entries.clone(),
                         result: result.clone(),
                         ctrl: ctrl.clone(),
