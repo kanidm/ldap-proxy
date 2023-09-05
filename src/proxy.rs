@@ -122,19 +122,24 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                 let dn = lbr.dn.clone();
 
                 // We need the client to connect *and* bind to proceed here!
-                let mut client =
-                    match BasicLdapClient::build(&app_state.addrs, &app_state.tls_params).await {
-                        Ok(c) => c,
-                        Err(e) => {
-                            error!(?e, "A client build error has occured.");
-                            let resp_msg = bind_operror(msgid, "unable to bind");
-                            if w.send(resp_msg).await.is_err() {
-                                error!("Unable to send response");
-                            }
-                            // Always bail.
-                            break;
+                let mut client = match BasicLdapClient::build(
+                    &app_state.addrs,
+                    &app_state.tls_params,
+                    app_state.max_proxy_ber_size,
+                )
+                .await
+                {
+                    Ok(c) => c,
+                    Err(e) => {
+                        error!(?e, "A client build error has occured.");
+                        let resp_msg = bind_operror(msgid, "unable to bind");
+                        if w.send(resp_msg).await.is_err() {
+                            error!("Unable to send response");
                         }
-                    };
+                        // Always bail.
+                        break;
+                    }
+                };
 
                 let valid = match client.bind(lbr, ctrl).await {
                     Ok((bind_resp, ctrl)) => {
@@ -434,6 +439,7 @@ impl BasicLdapClient {
     pub async fn build(
         addrs: &[SocketAddr],
         tls_connector: &SslConnector,
+        max_ber_size: Option<usize>,
     ) -> Result<Self, LdapError> {
         let timeout = Duration::from_secs(5);
 
@@ -482,8 +488,8 @@ impl BasicLdapClient {
 
         let (r, w) = tokio::io::split(tlsstream);
 
-        let w = FramedWrite::new(w, LdapCodec);
-        let r = FramedRead::new(r, LdapCodec);
+        let w = FramedWrite::new(w, LdapCodec::new(max_ber_size));
+        let r = FramedRead::new(r, LdapCodec::new(max_ber_size));
 
         info!("Connected to remote ldap server");
         Ok(BasicLdapClient {

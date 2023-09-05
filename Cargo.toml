@@ -25,4 +25,4 @@ tracing = { version = "^0.1.37", features = ["max_level_trace", "release_max_lev
 tracing-forest = { version = "0.1.6", features = ["chrono", "smallvec", "tokio"] }
 url = { version = "^2.4.0", features = ["serde"] }
 
-ldap3_proto = { path = "../ldap3/proto", features = ["serde"] }
+ldap3_proto = { path = "../ldap3/proto", version = "0.4.0", features = ["serde"] }

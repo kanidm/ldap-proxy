@@ -476,13 +476,14 @@ dependencies = [
 
 [[package]]
 name = "ldap3_proto"
-version = "0.3.5"
+version = "0.4.0"
 dependencies = [
  "bytes",
  "lber",
  "nom",
  "peg",
  "serde",
+ "thiserror",
  "tokio-util",
  "tracing",
  "uuid",

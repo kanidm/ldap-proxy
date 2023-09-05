@@ -75,6 +75,9 @@ struct Config {
     ldap_ca: PathBuf,
     ldap_url: Url,
 
+    max_incoming_ber_size: Option<usize>,
+    max_proxy_ber_size: Option<usize>,
+
     #[serde(flatten)]
     binddn_map: BTreeMap<String, DnConfig>,
 }
@@ -92,6 +95,8 @@ pub(crate) struct AppState {
     pub binddn_map: BTreeMap<String, DnConfig>,
     pub cache: ARCache<SearchCacheKey, CachedValue>,
     pub cache_entry_timeout: Duration,
+    pub max_incoming_ber_size: Option<usize>,
+    pub max_proxy_ber_size: Option<usize>,
 }
 
 async fn ldaps_acceptor(
@@ -100,6 +105,7 @@ async fn ldaps_acceptor(
     mut broadcast_rx: broadcast::Receiver<bool>,
     app_state: Arc<AppState>,
 ) {
+    let max_incoming_ber_size = app_state.max_incoming_ber_size;
     loop {
         tokio::select! {
             _ = broadcast_rx.recv() => {
@@ -122,8 +128,8 @@ async fn ldaps_acceptor(
                             continue;
                         };
                         let (r, w) = tokio::io::split(tlsstream);
-                        let r = FramedRead::new(r, LdapCodec);
-                        let w = FramedWrite::new(w, LdapCodec);
+                        let r = FramedRead::new(r, LdapCodec::new(max_incoming_ber_size));
+                        let w = FramedWrite::new(w, LdapCodec::new(max_incoming_ber_size));
                         let c_app_state = app_state.clone();
                         tokio::spawn(proxy::client_process(r, w, client_socket_addr, c_app_state));
                     }
@@ -273,12 +279,17 @@ async fn setup(opt: &Opt) {
 
     let cache_entry_timeout = Duration::from_secs(sync_config.cache_entry_timeout);
 
+    let max_incoming_ber_size = sync_config.max_incoming_ber_size;
+    let max_proxy_ber_size = sync_config.max_proxy_ber_size;
+
     let app_state = Arc::new(AppState {
         tls_params,
         addrs,
         binddn_map: sync_config.binddn_map.clone(),
         cache,
         cache_entry_timeout,
+        max_incoming_ber_size,
+        max_proxy_ber_size,
     });
 
     // Setup the TLS server parameters
