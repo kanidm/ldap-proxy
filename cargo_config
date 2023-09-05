@@ -1,0 +1,10 @@
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source."git+https://github.com/kanidm/ldap3.git?rev=64e70797eb0e5e1a6bdb81d831fb757016268db3"]
+git = "https://github.com/kanidm/ldap3.git"
+rev = "64e70797eb0e5e1a6bdb81d831fb757016268db3"
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
