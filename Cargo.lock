@@ -130,6 +130,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "base64"
+version = "0.21.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "414dcefbc63d77c526a76b3afcf6fbb9b5e2791c19c3aa2297733208750c6e53"
+
+[[package]]
 name = "bitflags"
 version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -477,8 +483,9 @@ dependencies = [
 [[package]]
 name = "ldap3_proto"
 version = "0.4.0"
-source = "git+https://github.com/kanidm/ldap3.git?rev=64e70797eb0e5e1a6bdb81d831fb757016268db3#64e70797eb0e5e1a6bdb81d831fb757016268db3"
+source = "git+https://github.com/kanidm/ldap3.git?rev=63b77d71ea5e210d8c016c3e60dffed7bd644116#63b77d71ea5e210d8c016c3e60dffed7bd644116"
 dependencies = [
+ "base64",
  "bytes",
  "lber",
  "nom",
