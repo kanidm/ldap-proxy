@@ -3,6 +3,9 @@
 A fast, simple, in-memory caching proxy for ldap that allows limiting of dn's and their searches.
 
 ```
+# /data/config.toml for containers.
+# /etc/ldap-proxy/config.toml for packaged versions.
+
 bind = "127.0.0.1:3636"
 tls_chain = "/tmp/chain.pem"
 tls_key = "/tmp/key.pem"
@@ -37,6 +40,10 @@ allowed_queries = [
 
 ```
 
+## Where do I get it?
+
+* OpenSUSE: `zypper in ldap-proxy`
+* docker: `docker pull firstyear/ldap-proxy:latest`
 
 ## TODO:
 
