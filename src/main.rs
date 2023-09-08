@@ -42,6 +42,7 @@ mod proxy;
 use crate::proxy::{CachedValue, SearchCacheKey};
 
 const DEFAULT_CONFIG_PATH: &str = "/etc/kanidm/ldap-proxy";
+const MEGABYTES: usize = 1048576;
 
 #[derive(Debug, clap::Parser)]
 struct Opt {
@@ -53,8 +54,7 @@ struct Opt {
 }
 
 fn default_cache_bytes() -> usize {
-    // 128 MB
-    137438953472
+    128 * MEGABYTES
 }
 
 fn default_cache_entry_timeout() -> u64 {
@@ -78,11 +78,14 @@ struct Config {
     max_incoming_ber_size: Option<usize>,
     max_proxy_ber_size: Option<usize>,
 
+    #[serde(default)]
+    allow_all_bind_dns: bool,
+
     #[serde(flatten)]
     binddn_map: BTreeMap<String, DnConfig>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 struct DnConfig {
     #[serde(default)]
     allowed_queries: HashSet<(String, LdapSearchScope, LdapFilter)>,
@@ -97,6 +100,7 @@ pub(crate) struct AppState {
     pub cache_entry_timeout: Duration,
     pub max_incoming_ber_size: Option<usize>,
     pub max_proxy_ber_size: Option<usize>,
+    pub allow_all_bind_dns: bool,
 }
 
 async fn ldaps_acceptor(
@@ -281,6 +285,7 @@ async fn setup(opt: &Opt) {
 
     let max_incoming_ber_size = sync_config.max_incoming_ber_size;
     let max_proxy_ber_size = sync_config.max_proxy_ber_size;
+    let allow_all_bind_dns = sync_config.allow_all_bind_dns;
 
     let app_state = Arc::new(AppState {
         tls_params,
@@ -290,6 +295,7 @@ async fn setup(opt: &Opt) {
         cache_entry_timeout,
         max_incoming_ber_size,
         max_proxy_ber_size,
+        allow_all_bind_dns,
     });
 
     // Setup the TLS server parameters

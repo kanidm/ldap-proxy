@@ -105,13 +105,18 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                         dnconfig.clone()
                     }
                     None => {
-                        // No config found, sad trombone.
-                        let resp_msg = bind_operror(msgid, "unable to bind");
-                        if w.send(resp_msg).await.is_err() {
-                            error!("Unable to send response");
-                            break;
+                        if app_state.allow_all_bind_dns {
+                            // All bind dns are allow, return a default config.
+                            DnConfig::default()
+                        } else {
+                            // Bind dns are filtered, sad trombone time.
+                            let resp_msg = bind_operror(msgid, "unable to bind");
+                            if w.send(resp_msg).await.is_err() {
+                                error!("Unable to send response");
+                                break;
+                            }
+                            continue;
                         }
-                        continue;
                     }
                 };
 

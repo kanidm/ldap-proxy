@@ -9,8 +9,14 @@ ldap_url = "ldaps://ldap.example.com"
 [""]
 allowed_queries = [
     ["", "base", "(objectclass=*)"],
-    ["o=blackhats", "subtree", "(objectclass=*)"],
 ]
 
+["cn=John Cena,dc=dooo,dc=do,dc=do,dc=doooooo"]
+allowed_queries = [
+    ["", "base", "(objectclass=*)"],
+    ["o=kanidm", "subtree", "(objectclass=*)"],
+]
+
+["cn=Administrator"]
 
 

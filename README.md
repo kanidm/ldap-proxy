@@ -20,9 +20,27 @@ tls_key = "/tmp/key.pem"
 # The max ber size of responses from the upstream ldap server
 # max_proxy_ber_size = 8388608
 
+# By default only DNs listed in the bind-maps may bind. All other
+# DNs that do not have a bind-map entry may not proceed. Setting
+# this allows all DNs to bind through the server. When this is
+# true, if the DN has a bind-map it will filter the queries of that
+# DN. If the DN does not have a bind map, it allows all queries.
+#
+# Another way to think of this is that setting this to "false"
+# makes this an ldap firewall. Setting this to "true" turns this
+# into a search-caching proxy.
+#
+# allow_all_bind_dns = false
+
 ldap_ca = "/tmp/ldap-ca.pem"
 ldap_url = "ldaps://idm.example.com"
 
+
+# Bind Maps
+#
+# This allows you to configure which DNs can bind, and what search
+# queries they may perform.
+#
 # "" is the anonymous dn
 [""]
 allowed_queries = [
@@ -44,9 +62,4 @@ allowed_queries = [
 
 * OpenSUSE: `zypper in ldap-proxy`
 * docker: `docker pull firstyear/ldap-proxy:latest`
-
-## TODO:
-
-* Allow configuration of client timeouts.
-* Improve handling of client timeout from server.
 
