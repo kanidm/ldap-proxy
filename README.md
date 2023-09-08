@@ -30,10 +30,10 @@ allowed_queries = [
     ["o=example", "subtree", "(objectclass=*)"],
 ]
 
-[cn=Administrator]
+["cn=Administrator"]
 # If you don't specify allowed queries, all queries are granted
 
-[cn=user]
+["cn=user"]
 allowed_queries = [
     ["", "base", "(objectclass=*)"],
 ]
