@@ -63,3 +63,22 @@ allowed_queries = [
 * OpenSUSE: `zypper in ldap-proxy`
 * docker: `docker pull firstyear/ldap-proxy:latest`
 
+## FAQ
+
+### Why can't ldap-proxy running under systemd read my certificates?
+
+Because we use systemd dynamic users. This means that ldap-proxy is always isolated in a sandboxed
+user, and that user can dynamically change it's uid/gid.
+
+To resolve this, you need to add ldap-proxy to have a supplemental group that can read your certs.
+
+```
+# systemctl edit ldap-proxy
+[Service]
+SupplementaryGroups=certbot
+```
+
+Then restart ldap-proxy. Also be sure to check that the group has proper execute bits along the
+directory paths and that the certs are readable to the group!
+
+

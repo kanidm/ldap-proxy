@@ -1,13 +1,20 @@
 # You should not need to edit this file. Instead, use a drop-in file as described in:
-#   /usr/lib/systemd/system/kanidmd.service.d/custom.conf
+#   systemctl edit ldap-proxy.service
+#   OR
+#   /etc/systemd/system/kanidmd.service.d/custom.conf
+#
+# You *MAY* need to add extra groups to the service to read certificates.
+#
+# [Service]
+# SupplementaryGroups=dehydrated
 
 [Unit]
-Description=Kanidm Identity Server
+Description=Kanidm Ldap Proxy Service
 After=time-sync.target network-online.target
 Wants=time-sync.target network-online.target
 
 [Service]
-Type=notify
+Type=simple
 DynamicUser=yes
 ExecStart=/usr/sbin/ldap-proxy -c /etc/ldap-proxy/config.toml
 
