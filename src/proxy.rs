@@ -82,7 +82,7 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
     // We always start unbound.
     let mut state = ClientState::Unbound;
 
-    // Start to wait for incomming packets
+    // Start to wait for incoming packets
     while let Some(Ok(protomsg)) = r.next().await {
         let next_state = match (&mut state, protomsg) {
             // Doesn't matter what state we are in, any bind will trigger this process.
@@ -136,7 +136,7 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                 {
                     Ok(c) => c,
                     Err(e) => {
-                        error!(?e, "A client build error has occured.");
+                        error!(?e, "A client build error has occurred.");
                         let resp_msg = bind_operror(msgid, "unable to bind");
                         if w.send(resp_msg).await.is_err() {
                             error!("Unable to send response");
@@ -163,7 +163,7 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                         valid
                     }
                     Err(e) => {
-                        error!(?e, "A client bind error has occured");
+                        error!(?e, "A client bind error has occurred");
                         let resp_msg = bind_operror(msgid, "unable to bind");
                         if w.send(resp_msg).await.is_err() {
                             error!("Unable to send response");
@@ -295,7 +295,7 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                         match client.search(sr, ctrl).await {
                             Ok(data) => data,
                             Err(e) => {
-                                error!(?e, "A client search error has occured");
+                                error!(?e, "A client search error has occurred");
                                 let resp_msg = bind_operror(msgid, "unable to search");
                                 if w.send(resp_msg).await.is_err() {
                                     error!("Unable to send response");
