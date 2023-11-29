@@ -2,7 +2,7 @@
 name: Security report
 about: Notify us of a security issue in the project
 title: ''
-labels: oh no~, security
+labels: security
 assignees: ''
 
 ---
