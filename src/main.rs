@@ -49,7 +49,7 @@ struct Opt {
     #[clap(short, long, env = "LDAP_PROXY_DEBUG")]
     debug: bool,
 
-    #[clap(value_parser, short, long, default_value_os_t = DEFAULT_CONFIG_PATH.into())]
+    #[clap(value_parser, short, long, default_value_os_t = DEFAULT_CONFIG_PATH.into(), env="LDAP_PROXY_CONFIG_PATH")]
     config: PathBuf,
 }
 
@@ -153,21 +153,33 @@ async fn setup(opt: &Opt) {
     let mut f = match File::open(&opt.config) {
         Ok(f) => f,
         Err(e) => {
-            error!("Unable to open config file [{:?}] 🥺", e);
+            error!(
+                "Unable to open config file '{}' [{:?}] 🥺",
+                &opt.config.display(),
+                e
+            );
             return;
         }
     };
 
     let mut contents = String::new();
     if let Err(e) = f.read_to_string(&mut contents) {
-        error!("unable to read config contents {:?}", e);
+        error!(
+            "unable to read config contents from '{}' {:?}",
+            &opt.config.display(),
+            e
+        );
         return;
     };
 
     let sync_config: Config = match toml::from_str(contents.as_str()) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("unable to parse config {:?}", e);
+            eprintln!(
+                "unable to parse config from '{}' {:?}",
+                &opt.config.display(),
+                e
+            );
             return;
         }
     };
