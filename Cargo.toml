@@ -7,25 +7,26 @@ edition = "2021"
 
 [dependencies]
 
-concread = "^0.4.0"
-clap = { version = "4.1", features = ["derive", "env"] }
-futures-util = { version = "^0.3.21", features = ["sink"] }
+concread = "^0.4.3"
+clap = { version = "4.4", features = ["derive", "env"] }
+futures-util = { version = "^0.3.29", features = ["sink"] }
 hashbrown = { version = "0.14", features = ["serde"] }
-openssl = "^0.10.57"
-serde = { version = "^1.0.188", features = ["derive"] }
+openssl = "^0.10.61"
+serde = { version = "^1.0.193", features = ["derive"] }
 tikv-jemallocator = "0.5"
-tokio = { version = "^1.24.2", features = ["rt", "rt-multi-thread", "macros", "net", "signal", "io-util"] }
-tokio-util = { version = "^0.7.8", features = ["codec"] }
+tokio = { version = "^1.34.0", features = ["rt", "rt-multi-thread", "macros", "net", "signal", "io-util"] }
+tokio-util = { version = "^0.7.10", features = ["codec"] }
 tokio-openssl = "^0.6.3"
 
-toml = "^0.5.11"
+toml = "^0.8.8"
 
-tracing = { version = "^0.1.37", features = ["max_level_trace", "release_max_level_debug"] }
+tracing = { version = "^0.1.40", features = ["max_level_trace", "release_max_level_debug"] }
 
 tracing-forest = { version = "0.1.6", features = ["chrono", "smallvec", "tokio"] }
-url = { version = "^2.4.0", features = ["serde"] }
+url = { version = "^2.5.0", features = ["serde"] }
 
-ldap3_proto = { version = "0.4.0", features = ["serde"] }
+ldap3_proto = { version = "0.4.2", features = ["serde"] }
+uuid = { version = "1.6.1", features = ["serde"] }
 
 [patch.crates-io]
 # ldap3_proto = { path = "../ldap3/proto" }
