@@ -1,5 +1,6 @@
 use futures_util::sink::SinkExt;
 use futures_util::stream::StreamExt;
+use ldap3_proto::control::LdapControl;
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
