@@ -1,18 +1,3 @@
-#![deny(warnings)]
-#![warn(unused_extern_crates)]
-#![deny(clippy::todo)]
-#![deny(clippy::unimplemented)]
-#![deny(clippy::unwrap_used)]
-#![deny(clippy::expect_used)]
-#![deny(clippy::panic)]
-#![deny(clippy::unreachable)]
-#![deny(clippy::await_holding_lock)]
-#![deny(clippy::needless_pass_by_value)]
-#![deny(clippy::trivially_copy_pass_by_ref)]
-
-#[global_allocator]
-static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
-
 use clap::Parser;
 use hashbrown::HashSet;
 use ldap3_proto::LdapCodec;
@@ -66,6 +51,7 @@ struct Config {
     bind: SocketAddr,
     tls_key: PathBuf,
     tls_chain: PathBuf,
+    ssl: bool,
 
     #[serde(default = "default_cache_bytes")]
     cache_bytes: usize,
@@ -108,6 +94,7 @@ async fn ldaps_acceptor(
     tls_parms: SslAcceptor,
     mut broadcast_rx: broadcast::Receiver<bool>,
     app_state: Arc<AppState>,
+    ssl: bool,
 ) {
     let max_incoming_ber_size = app_state.max_incoming_ber_size;
     loop {
@@ -118,7 +105,9 @@ async fn ldaps_acceptor(
             accept_result = listener.accept() => {
                 match accept_result {
                     Ok((tcpstream, client_socket_addr)) => {
-                        let mut tlsstream = match Ssl::new(tls_parms.context())
+                        //TODO with parameter
+                        if ssl {
+                         let mut tlsstream = match Ssl::new(tls_parms.context())
                             .and_then(|tls_obj| SslStream::new(tls_obj, tcpstream))
                         {
                             Ok(ta) => ta,
@@ -127,19 +116,28 @@ async fn ldaps_acceptor(
                                 continue;
                             }
                         };
-                        if let Err(e) = SslStream::accept(Pin::new(&mut tlsstream)).await {
+                         if let Err(e) = SslStream::accept(Pin::new(&mut tlsstream)).await {
                             error!("LDAP TLS accept error, continuing -> {:?}", e);
                             continue;
                         };
+
                         let (r, w) = tokio::io::split(tlsstream);
                         let r = FramedRead::new(r, LdapCodec::new(max_incoming_ber_size));
                         let w = FramedWrite::new(w, LdapCodec::new(max_incoming_ber_size));
                         let c_app_state = app_state.clone();
                         tokio::spawn(proxy::client_process(r, w, client_socket_addr, c_app_state));
-                    }
+
+                        } else {
+                        let (r, w) = tokio::io::split(tcpstream);
+                        let r = FramedRead::new(r, LdapCodec::new(max_incoming_ber_size));
+                        let w = FramedWrite::new(w, LdapCodec::new(max_incoming_ber_size));
+                        let c_app_state = app_state.clone();
+                        tokio::spawn(proxy::client_process(r, w, client_socket_addr, c_app_state));
+                    } }
                     Err(e) => {
                         error!("LDAP acceptor error, continuing -> {:?}", e);
                     }
+
                 }
             }
         }
@@ -191,6 +189,7 @@ async fn setup(opt: &Opt) {
     // Setup the broadcast system.
     let (broadcast_tx, broadcast_rx) = broadcast::channel(1);
 
+    //TODO Here BIND
     // Let the listening port ready.
     let listener = match TcpListener::bind(&sync_config.bind).await {
         Ok(l) => l,
@@ -207,8 +206,9 @@ async fn setup(opt: &Opt) {
 
     let url = sync_config.ldap_url;
 
+    //TODO accept multiple schemes ldap for ssl proxy
     match url.scheme() {
-        "ldaps" => {}
+        "ldap" => {}
         _ => {
             error!("Unable to proceed. LDAPS is required in remote ldap_url");
             return;
@@ -245,7 +245,7 @@ async fn setup(opt: &Opt) {
     };
 
     let cert_store = tls_builder.cert_store_mut();
-    let mut file = match File::open(&sync_config.ldap_ca) {
+    /* let mut file = match File::open(&sync_config.ldap_ca) {
         Ok(f) => f,
         Err(e) => {
             error!(?e, "Unable to open {:?}", &sync_config.ldap_ca);
@@ -272,7 +272,7 @@ async fn setup(opt: &Opt) {
     }) {
         error!(?e, "openssl");
         return;
-    };
+    };*/
 
     let verify_param = tls_builder.verify_param_mut();
     if let Err(e) = verify_param.set_host(hostname) {
@@ -310,6 +310,7 @@ async fn setup(opt: &Opt) {
         allow_all_bind_dns,
     });
 
+    //TODO needs actvation for incoming
     // Setup the TLS server parameters
     let mut tls_builder = match SslAcceptor::mozilla_intermediate_v5(SslMethod::tls()) {
         Ok(t) => t,
@@ -319,19 +320,22 @@ async fn setup(opt: &Opt) {
         }
     };
 
-    if let Err(e) = tls_builder.set_certificate_chain_file(&sync_config.tls_chain) {
-        error!("Unable to load certificate chain -> {:?}", e);
-        return;
-    }
+    //TODO Config
+    if sync_config.ssl {
+        if let Err(e) = tls_builder.set_certificate_chain_file(&sync_config.tls_chain) {
+            error!("Unable to load certificate chain -> {:?}", e);
+            return;
+        }
 
-    if let Err(e) = tls_builder.set_private_key_file(&sync_config.tls_key, SslFiletype::PEM) {
-        error!("Unable to load private key -> {:?}", e);
-        return;
-    }
+        if let Err(e) = tls_builder.set_private_key_file(&sync_config.tls_key, SslFiletype::PEM) {
+            error!("Unable to load private key -> {:?}", e);
+            return;
+        }
 
-    if let Err(e) = tls_builder.check_private_key() {
-        error!("Unable to validate private key -> {:?}", e);
-        return;
+        if let Err(e) = tls_builder.check_private_key() {
+            error!("Unable to validate private key -> {:?}", e);
+            return;
+        }
     }
 
     // Done!
@@ -339,7 +343,14 @@ async fn setup(opt: &Opt) {
 
     // Setup the acceptor.
     let acceptor = tokio::spawn(async move {
-        ldaps_acceptor(listener, tls_server_params, broadcast_rx, app_state).await
+        ldaps_acceptor(
+            listener,
+            tls_server_params,
+            broadcast_rx,
+            app_state,
+            sync_config.ssl,
+        )
+        .await
     });
 
     // Finally, block on the signal handler.

@@ -23,8 +23,11 @@ use std::time::Instant;
 
 use crate::{AppState, DnConfig};
 
-type CR = ReadHalf<SslStream<TcpStream>>;
-type CW = WriteHalf<SslStream<TcpStream>>;
+/* type CR = ReadHalf<SslStream<TcpStream>>;
+type CW = WriteHalf<SslStream<TcpStream>>; */
+
+type CR = ReadHalf<TcpStream>;
+type CW = WriteHalf<TcpStream>;
 
 #[derive(Debug, Clone, Hash, PartialOrd, Ord, Eq, PartialEq)]
 pub struct SearchCacheKey {
@@ -72,6 +75,7 @@ fn bind_operror(msgid: i32, msg: &str) -> LdapMsg {
     }
 }
 
+//TODO entry
 pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
     mut r: FramedRead<R, LdapCodec>,
     mut w: FramedWrite<W, LdapCodec>,
@@ -478,7 +482,8 @@ impl BasicLdapClient {
             }
         };
 
-        let mut tlsstream = Ssl::new(tls_connector.context())
+        //TODO fix for noSSL
+        /* let mut tlsstream = Ssl::new(tls_connector.context())
             .and_then(|tls_obj| SslStream::new(tls_obj, tcpstream))
             .map_err(|e| {
                 error!(?e, "openssl");
@@ -490,9 +495,10 @@ impl BasicLdapClient {
             .map_err(|e| {
                 error!(?e, "openssl");
                 LdapError::TlsError
-            })?;
+            })?; */
 
-        let (r, w) = tokio::io::split(tlsstream);
+        //let (r, w) = tokio::io::split(tlsstream);
+        let (r, w) = tokio::io::split(tcpstream);
 
         let w = FramedWrite::new(w, LdapCodec::new(max_ber_size));
         let r = FramedRead::new(r, LdapCodec::new(max_ber_size));
