@@ -320,7 +320,7 @@ async fn setup(opt: &Opt) {
         }
     };
 
-    //TODO Config
+    //TODO Configs
     if sync_config.ssl {
         if let Err(e) = tls_builder.set_certificate_chain_file(&sync_config.tls_chain) {
             error!("Unable to load certificate chain -> {:?}", e);
