@@ -1,45 +1,30 @@
-FROM opensuse/tumbleweed:latest AS ref_repo
+FROM clux/muslrust:stable as chef
+ 
+RUN cargo install cargo-chef
+WORKDIR /app
+RUN ls -l
 
-RUN sed -i -E 's/https?:\/\/download.opensuse.org/https:\/\/mirrorcache.firstyear.id.au/g' /etc/zypp/repos.d/*.repo && \
-    zypper --gpg-auto-import-keys ref --force
+FROM chef AS planner
+COPY . .
+RUN ls -l
+RUN cargo chef prepare --recipe-path recipe.json
 
-# // setup the builder pkgs
-FROM ref_repo AS build_base
-RUN zypper install -y cargo rust gcc libopenssl-3-devel sccache perl make gawk
+FROM chef AS builder
+COPY --from=planner /app/recipe.json recipe.json
+# Build & cache dependencies
 
-# // setup the runner pkgs
-FROM ref_repo AS run_base
-RUN zypper install -y sqlite3 openssl-3 timezone iputils iproute2 openldap2-client
-COPY SUSE_CA_Root.pem /etc/pki/trust/anchors/
-RUN /usr/sbin/update-ca-certificates
+RUN ls -l
+RUN cargo chef cook --release --target x86_64-unknown-linux-musl --recipe-path recipe.json
+# Copy source code from previous stage
+COPY . .
+# Build application
+RUN cargo build --release --target x86_64-unknown-linux-musl --bin requestsautomation
 
-# // build artifacts
-FROM build_base AS builder
 
-COPY . /home/proxy/
-RUN mkdir /home/proxy/.cargo
-COPY cargo_config /home/proxy/.cargo/config
-WORKDIR /home/proxy/opensuse-proxy-cache
+FROM gcr.io/distroless/cc AS runtime
+#WORKDIR /usr/local/bin/app
+COPY --from=planner /app/Config.toml /
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/requestsautomation /usr/local/bin/app
 
-# RUSTFLAGS="-Ctarget-cpu=x86-64-v3"
-#
-# 
-
-RUN if [ "$(uname -i)" = "x86_64" ]; then export RUSTFLAGS="-Ctarget-cpu=x86-64-v3 --cfg tokio_unstable"; fi && \
-    SCCACHE_REDIS=redis://redis.firstyear.id.au:6379 \
-    RUSTC_WRAPPER=sccache \
-    RUST_BACKTRACE=full \
-    cargo build --release
-
-# == end builder setup, we now have static artifacts.
-FROM run_base
-MAINTAINER william@blackhats.net.au
-EXPOSE 636
-WORKDIR /
-
-COPY --from=builder /home/proxy/target/release/ldap-proxy /bin/
-
-STOPSIGNAL SIGINT
-
-ENV RUST_BACKTRACE 1
-CMD ["/bin/ldap-proxy", "-c", "/data/config.toml"]
+EXPOSE 8180 8280
+CMD ["/usr/local/bin/app"]
