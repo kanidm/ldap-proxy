@@ -18,13 +18,13 @@ RUN cargo chef cook --release --target x86_64-unknown-linux-musl --recipe-path r
 # Copy source code from previous stage
 COPY . .
 # Build application
-RUN cargo build --release --target x86_64-unknown-linux-musl --bin requestsautomation
+RUN cargo build --release --target x86_64-unknown-linux-musl --bin ldap-proxy
 
 
 FROM gcr.io/distroless/cc AS runtime
 #WORKDIR /usr/local/bin/app
 COPY --from=planner /app/Config.toml /
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/requestsautomation /usr/local/bin/app
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/ldap-proxy /usr/local/bin/app
 
 EXPOSE 8180 8280
 CMD ["/usr/local/bin/app"]
