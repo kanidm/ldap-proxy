@@ -26,5 +26,5 @@ FROM gcr.io/distroless/cc AS runtime
 COPY --from=planner /app/Config.toml /
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/ldap-proxy /usr/local/bin/app
 
-EXPOSE 8180 8280
-CMD ["/usr/local/bin/app"]
+EXPOSE 9389
+CMD ["/usr/local/bin/app","-c","/Config.toml"]
