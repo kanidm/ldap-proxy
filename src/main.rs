@@ -2,6 +2,8 @@ use clap::Parser;
 use hashbrown::HashSet;
 use ldap3_proto::LdapCodec;
 use ldap3_proto::{LdapFilter, LdapSearchScope};
+use openssl::ssl::{Ssl, SslAcceptor, SslConnector, SslFiletype, SslMethod, SslVerifyMode};
+use openssl::x509::X509;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -10,24 +12,29 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+use thiserror::Error;
+use tokio::net::TcpListener;
 use tokio::sync::broadcast;
+use tokio_openssl::SslStream;
+use tokio_util::codec::{FramedRead, FramedWrite};
 use tracing_forest::{traits::*, util::*};
 use url::Url;
 
-use openssl::ssl::{Ssl, SslAcceptor, SslConnector, SslFiletype, SslMethod, SslVerifyMode};
-use openssl::x509::X509;
-use tokio::net::TcpListener;
-use tokio_openssl::SslStream;
-use tokio_util::codec::{FramedRead, FramedWrite};
-
 use concread::arcache::{ARCache, ARCacheBuilder};
 
+mod acme;
 mod proxy;
 
 use crate::proxy::{CachedValue, SearchCacheKey};
 
 const DEFAULT_CONFIG_PATH: &str = "/etc/kanidm/ldap-proxy";
 const MEGABYTES: usize = 1048576;
+
+#[derive(Error, Debug)]
+pub enum ProcessingError {
+    #[error("Acme failed")]
+    Acme(#[from] acme_lib::Error),
+}
 
 #[derive(Debug, clap::Parser)]
 struct Opt {
@@ -407,7 +414,9 @@ async fn setup(opt: &Opt) {
 }
 
 #[tokio::main(flavor = "multi_thread")]
-async fn main() {
+async fn main() -> Result<(), ProcessingError> {
+    acme::request_cert()?;
+
     let opt = Opt::parse();
 
     let level = if opt.debug {
@@ -422,4 +431,5 @@ async fn main() {
         .build_on(|subscriber| subscriber.with(level))
         .on(setup(&opt))
         .await;
+    Ok(())
 }

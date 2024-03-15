@@ -5,7 +5,7 @@
 bind = "127.0.0.1:3001"
 tls_chain = "./chain.pem"
 tls_key = "./key.pem"
-ssl = true
+ssl = false
 
 # Number of bytes of entries to store in the cache
 # cache_bytes = 137438953472

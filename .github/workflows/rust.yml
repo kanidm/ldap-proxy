@@ -69,8 +69,8 @@ jobs:
           context: .
           target: runtime
           push: true
-          tags: raynkami/rust.ldap-proxy:v0.0.1
-          labels: rust.auto
+          tags: raynkami/rust.ldap-proxy:v0.0.2
+          labels: rust.proxy
 
   del_runs:
     runs-on: ubuntu-latest
