@@ -147,6 +147,7 @@ async fn ldaps_acceptor(
 
 async fn setup(opt: &Opt) {
     info!("Starting ldap-proxy");
+    info!("Config file location: {:?}", &opt.config);
 
     let mut f = match File::open(&opt.config) {
         Ok(f) => f,
