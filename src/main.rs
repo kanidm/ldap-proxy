@@ -14,20 +14,15 @@
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 use clap::Parser;
-use hashbrown::HashSet;
 use ldap3_proto::LdapCodec;
-use ldap3_proto::{LdapFilter, LdapSearchScope};
-use serde::Deserialize;
-use std::collections::BTreeMap;
+use ldap_proxy::{AppState, Config};
 use std::fs::File;
 use std::io::Read;
-use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
 use tracing_forest::{traits::*, util::*};
-use url::Url;
 
 use openssl::ssl::{Ssl, SslAcceptor, SslConnector, SslFiletype, SslMethod, SslVerifyMode};
 use openssl::x509::X509;
@@ -35,14 +30,10 @@ use tokio::net::TcpListener;
 use tokio_openssl::SslStream;
 use tokio_util::codec::{FramedRead, FramedWrite};
 
-use concread::arcache::{ARCache, ARCacheBuilder};
-
-mod proxy;
-
-use crate::proxy::{CachedValue, SearchCacheKey};
+use concread::arcache::ARCacheBuilder;
+use ldap_proxy::proxy::client_process;
 
 const DEFAULT_CONFIG_PATH: &str = "/etc/kanidm/ldap-proxy";
-const MEGABYTES: usize = 1048576;
 
 #[derive(Debug, clap::Parser)]
 struct Opt {
@@ -51,56 +42,6 @@ struct Opt {
 
     #[clap(value_parser, short, long, default_value_os_t = DEFAULT_CONFIG_PATH.into(), env="LDAP_PROXY_CONFIG_PATH")]
     config: PathBuf,
-}
-
-fn default_cache_bytes() -> usize {
-    128 * MEGABYTES
-}
-
-fn default_cache_entry_timeout() -> u64 {
-    1800
-}
-
-#[derive(Debug, Deserialize)]
-struct Config {
-    bind: SocketAddr,
-    tls_key: PathBuf,
-    tls_chain: PathBuf,
-
-    #[serde(default = "default_cache_bytes")]
-    cache_bytes: usize,
-    #[serde(default = "default_cache_entry_timeout")]
-    cache_entry_timeout: u64,
-
-    ldap_ca: PathBuf,
-    ldap_url: Url,
-
-    max_incoming_ber_size: Option<usize>,
-    max_proxy_ber_size: Option<usize>,
-
-    #[serde(default)]
-    allow_all_bind_dns: bool,
-
-    #[serde(flatten)]
-    binddn_map: BTreeMap<String, DnConfig>,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-struct DnConfig {
-    #[serde(default)]
-    allowed_queries: HashSet<(String, LdapSearchScope, LdapFilter)>,
-}
-
-pub(crate) struct AppState {
-    pub tls_params: SslConnector,
-    pub addrs: Vec<SocketAddr>,
-    // Cache later here.
-    pub binddn_map: BTreeMap<String, DnConfig>,
-    pub cache: ARCache<SearchCacheKey, CachedValue>,
-    pub cache_entry_timeout: Duration,
-    pub max_incoming_ber_size: Option<usize>,
-    pub max_proxy_ber_size: Option<usize>,
-    pub allow_all_bind_dns: bool,
 }
 
 async fn ldaps_acceptor(
@@ -135,7 +76,7 @@ async fn ldaps_acceptor(
                         let r = FramedRead::new(r, LdapCodec::new(max_incoming_ber_size));
                         let w = FramedWrite::new(w, LdapCodec::new(max_incoming_ber_size));
                         let c_app_state = app_state.clone();
-                        tokio::spawn(proxy::client_process(r, w, client_socket_addr, c_app_state));
+                        tokio::spawn(client_process(r, w, client_socket_addr, c_app_state));
                     }
                     Err(e) => {
                         error!("LDAP acceptor error, continuing -> {:?}", e);

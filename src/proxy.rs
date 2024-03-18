@@ -72,7 +72,7 @@ fn bind_operror(msgid: i32, msg: &str) -> LdapMsg {
     }
 }
 
-pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
+pub async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
     mut r: FramedRead<R, LdapCodec>,
     mut w: FramedWrite<W, LdapCodec>,
     client_address: SocketAddr,
@@ -423,14 +423,14 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
 }
 
 #[derive(Debug, Clone)]
-enum LdapError {
+pub enum LdapError {
     TlsError,
     ConnectError,
     Transport,
     InvalidProtocolState,
 }
 
-struct BasicLdapClient {
+pub struct BasicLdapClient {
     r: FramedRead<CR, LdapCodec>,
     w: FramedWrite<CW, LdapCodec>,
     msg_counter: i32,
