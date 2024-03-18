@@ -35,14 +35,14 @@ pub struct SearchCacheKey {
 
 #[derive(Debug, Clone)]
 pub struct CachedValue {
-    valid_until: Instant,
-    entries: Vec<(LdapSearchResultEntry, Vec<LdapControl>)>,
-    result: LdapResult,
-    ctrl: Vec<LdapControl>,
+    pub valid_until: Instant,
+    pub entries: Vec<(LdapSearchResultEntry, Vec<LdapControl>)>,
+    pub result: LdapResult,
+    pub ctrl: Vec<LdapControl>,
 }
 
 impl CachedValue {
-    fn size(&self) -> usize {
+    pub fn size(&self) -> usize {
         std::mem::size_of::<Self>() + self.entries.iter().map(|(e, _)| e.size()).sum::<usize>()
     }
 }
