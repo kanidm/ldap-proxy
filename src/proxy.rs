@@ -35,14 +35,14 @@ pub struct SearchCacheKey {
 
 #[derive(Debug, Clone)]
 pub struct CachedValue {
-    valid_until: Instant,
-    entries: Vec<(LdapSearchResultEntry, Vec<LdapControl>)>,
-    result: LdapResult,
-    ctrl: Vec<LdapControl>,
+    pub valid_until: Instant,
+    pub entries: Vec<(LdapSearchResultEntry, Vec<LdapControl>)>,
+    pub result: LdapResult,
+    pub ctrl: Vec<LdapControl>,
 }
 
 impl CachedValue {
-    fn size(&self) -> usize {
+    pub fn size(&self) -> usize {
         std::mem::size_of::<Self>() + self.entries.iter().map(|(e, _)| e.size()).sum::<usize>()
     }
 }
@@ -72,7 +72,7 @@ fn bind_operror(msgid: i32, msg: &str) -> LdapMsg {
     }
 }
 
-pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
+pub async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
     mut r: FramedRead<R, LdapCodec>,
     mut w: FramedWrite<W, LdapCodec>,
     client_address: SocketAddr,
@@ -423,14 +423,14 @@ pub(crate) async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
 }
 
 #[derive(Debug, Clone)]
-enum LdapError {
+pub enum LdapError {
     TlsError,
     ConnectError,
     Transport,
     InvalidProtocolState,
 }
 
-struct BasicLdapClient {
+pub struct BasicLdapClient {
     r: FramedRead<CR, LdapCodec>,
     w: FramedWrite<CW, LdapCodec>,
     msg_counter: i32,

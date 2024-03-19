@@ -36,3 +36,7 @@ jobs:
         run: cargo test
       - name: "Build in release mode"
         run: cargo build --release
+      - name: "Run CLI in debug and release mode" # tests clap, mainly
+        run: |
+          cargo run --release -- --help
+          cargo run -- --help
