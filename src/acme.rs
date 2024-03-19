@@ -2,9 +2,14 @@ use acme_lib::create_p384_key;
 use acme_lib::persist::FilePersist;
 use acme_lib::{Directory, DirectoryUrl, Error};
 
-pub fn request_cert() -> Result<(), Error> {
+use crate::ConfAcme;
+
+pub fn request_cert(conf: ConfAcme) -> Result<(), Error> {
     // Use DirectoryUrl::LetsEncrypStaging for dev/testing.
-    let url = DirectoryUrl::LetsEncryptStaging;
+    let mut url = DirectoryUrl::LetsEncryptStaging;
+    if !conf.acme_url.is_empty() {
+        url = DirectoryUrl::Other(&conf.acme_url);
+    }
 
     // Save/load keys and certificates to current dir.
     let persist = FilePersist::new(".");
@@ -15,10 +20,10 @@ pub fn request_cert() -> Result<(), Error> {
     // Reads the private account key from persistence, or
     // creates a new one before accessing the API to establish
     // that it's there.
-    let acc = dir.account("foo@bar.com")?;
+    let acc = dir.account(&conf.acme_email)?;
 
     // Order a new TLS certificate for a domain.
-    let mut ord_new = acc.new_order("mydomain.io", &[])?;
+    let mut ord_new = acc.new_order(&conf.acme_domain, &[])?;
 
     // If the ownership of the domain(s) have already been
     // authorized in a previous order, you might be able to

@@ -6,6 +6,8 @@ bind = "127.0.0.1:3001"
 tls_chain = "./chain.pem"
 tls_key = "./key.pem"
 ssl = false
+acme = { acme_url = "domain.com", acme_email = "test@test.com", acme_domain = "domain.com" }
+lb =  [ { source = "", target = ["",""] } ]
 
 # Number of bytes of entries to store in the cache
 # cache_bytes = 137438953472

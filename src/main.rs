@@ -34,6 +34,24 @@ const MEGABYTES: usize = 1048576;
 pub enum ProcessingError {
     #[error("Acme failed")]
     Acme(#[from] acme_lib::Error),
+    #[error("File parsing failed")]
+    FileParsing(#[from] toml::de::Error),
+    #[error("IO error")]
+    StdError(#[from] std::io::Error),
+}
+
+#[derive(Debug, clap::Parser, Deserialize)]
+struct ConfAcme {
+    acme_url: String,
+    acme_email: String,
+    acme_domain: String,
+    /* acme_private_key_path: PathBuf,
+    acme_ca_path: PathBuf,
+    acme_private_key_password: Option<String>,
+    acme_ca_password: Option<String>,
+    acme_port: Option<u16>,
+    acme_protocol: Option<String>,
+    acme_early_data: bool, */
 }
 
 #[derive(Debug, clap::Parser)]
@@ -59,7 +77,7 @@ struct Config {
     tls_key: PathBuf,
     tls_chain: PathBuf,
     ssl: bool,
-
+    acme: ConfAcme,
     #[serde(default = "default_cache_bytes")]
     cache_bytes: usize,
     #[serde(default = "default_cache_entry_timeout")]
@@ -155,7 +173,7 @@ async fn ldaps_acceptor(
 async fn setup(opt: &Opt) {
     info!("Starting ldap-proxy");
 
-    let mut f = match File::open(&opt.config) {
+    /* let mut f = match File::open(&opt.config) {
         Ok(f) => f,
         Err(e) => {
             error!(
@@ -187,7 +205,9 @@ async fn setup(opt: &Opt) {
             );
             return;
         }
-    };
+    }; */
+
+    let sync_config = configParse(opt).unwrap();
 
     debug!(?sync_config);
 
@@ -413,11 +433,52 @@ async fn setup(opt: &Opt) {
     let _ = acceptor.await;
 }
 
+fn configParse(opt: &Opt) -> Result<Config, ProcessingError> {
+    let mut contents = String::new();
+    info!("Opening config file '{}'", &opt.config.display());
+    let mut f = match File::open(&opt.config) {
+        Ok(f) => f,
+        Err(e) => {
+            error!(
+                "Unable to open config file '{}' [{:?}] 🥺",
+                &opt.config.display(),
+                e
+            );
+            return Err(ProcessingError::StdError(e));
+        }
+    };
+
+    if let Err(e) = f.read_to_string(&mut contents) {
+        error!(
+            "unable to read config contents from '{}' {:?}",
+            &opt.config.display(),
+            e
+        );
+        return Err(ProcessingError::StdError(e));
+    };
+
+    let sync_config: Config = match toml::from_str(contents.as_str()) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!(
+                "unable to parse config from '{}' {:?}",
+                &opt.config.display(),
+                e
+            );
+            return Err(ProcessingError::FileParsing(e));
+        }
+    };
+    Ok(sync_config)
+}
+
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), ProcessingError> {
-    acme::request_cert()?;
-
     let opt = Opt::parse();
+    let sync_config = configParse(&opt)?;
+
+    if true {
+        acme::request_cert(sync_config.acme)?;
+    }
 
     let level = if opt.debug {
         LevelFilter::TRACE
