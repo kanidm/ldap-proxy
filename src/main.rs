@@ -208,7 +208,7 @@ async fn setup(opt: &Opt) {
         }
     }; */
 
-    let sync_config = configParse(opt).unwrap();
+    let sync_config = config_parse(opt).unwrap();
 
     debug!(?sync_config);
 
@@ -239,14 +239,6 @@ async fn setup(opt: &Opt) {
         "ldap" => {}
         _ => {
             error!("Unable to proceed. LDAPS is required in remote ldap_url");
-            return;
-        }
-    };
-
-    let hostname = match url.host_str() {
-        Some(s) => s,
-        None => {
-            error!("Unable to determine hostname from url");
             return;
         }
     };
@@ -301,6 +293,14 @@ async fn setup(opt: &Opt) {
         error!(?e, "openssl");
         return;
     };*/
+
+    let hostname = match url.host_str() {
+        Some(s) => s,
+        None => {
+            error!("Unable to determine hostname from url");
+            return;
+        }
+    };
 
     let verify_param = tls_builder.verify_param_mut();
     if let Err(e) = verify_param.set_host(hostname) {
@@ -434,7 +434,7 @@ async fn setup(opt: &Opt) {
     let _ = acceptor.await;
 }
 
-fn configParse(opt: &Opt) -> Result<Config, ProcessingError> {
+fn config_parse(opt: &Opt) -> Result<Config, ProcessingError> {
     let mut contents = String::new();
     info!("Opening config file '{}'", &opt.config.display());
     let mut f = match File::open(&opt.config) {
@@ -475,7 +475,7 @@ fn configParse(opt: &Opt) -> Result<Config, ProcessingError> {
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), ProcessingError> {
     let opt = Opt::parse();
-    let sync_config = configParse(&opt)?;
+    let sync_config = config_parse(&opt)?;
 
     if true {
         acme::request_cert(sync_config.acme)?;
