@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 
-concread = "^0.4.6"
+concread = "^0.5.0"
 clap = { version = "4.5", features = ["derive", "env"] }
 futures-util = { version = "^0.3.30", features = ["sink"] }
 hashbrown = { version = "0.14", features = ["serde"] }
@@ -18,7 +18,7 @@ tokio = { version = "^1.36.0", features = ["rt", "rt-multi-thread", "macros", "n
 tokio-util = { version = "^0.7.10", features = ["codec"] }
 tokio-openssl = "^0.6.4"
 
-toml = "^0.8.11"
+toml = "^0.8.12"
 
 tracing = { version = "^0.1.40", features = ["max_level_trace", "release_max_level_debug"] }
 
@@ -26,7 +26,7 @@ tracing-forest = { version = "0.1.6", features = ["chrono", "smallvec", "tokio"]
 url = { version = "^2.5.0", features = ["serde"] }
 
 ldap3_proto = { version = "0.4.3", features = ["serde"] }
-uuid = { version = "1.7.0", features = ["serde"] }
+uuid = { version = "1.8.0", features = ["serde"] }
 
 [patch.crates-io]
 # ldap3_proto = { path = "../ldap3/proto" }
