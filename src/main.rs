@@ -32,8 +32,6 @@ const MEGABYTES: usize = 1048576;
 
 #[derive(Error, Debug)]
 pub enum ProcessingError {
-    #[error("Acme failed")]
-    Acme(#[from] acme_lib::Error),
     #[error("File parsing failed")]
     FileParsing(#[from] toml::de::Error),
     #[error("IO error")]
@@ -477,8 +475,9 @@ async fn main() -> Result<(), ProcessingError> {
     let opt = Opt::parse();
     let sync_config = config_parse(&opt)?;
 
-    if true {
-        acme::request_cert(sync_config.acme)?;
+    if !sync_config.acme.acme_domain.is_empty() {
+        println!("Starting ACME server");
+        acme::request_cert(sync_config.acme);
     }
 
     let level = if opt.debug {
