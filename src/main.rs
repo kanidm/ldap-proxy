@@ -477,10 +477,10 @@ async fn main() -> Result<(), ProcessingError> {
 
     if !sync_config.acme.acme_domain.is_empty() {
         println!("Starting ACME server");
-        acme::request_cert(sync_config.acme);
+        acme::request_cert(sync_config.acme).await;
     }
 
-    let level = if opt.debug {
+    /* let level = if opt.debug {
         LevelFilter::TRACE
     } else {
         LevelFilter::INFO
@@ -491,6 +491,6 @@ async fn main() -> Result<(), ProcessingError> {
         .map_sender(|sender| sender.or_stderr())
         .build_on(|subscriber| subscriber.with(level))
         .on(setup(&opt))
-        .await;
+        .await;*/
     Ok(())
 }
