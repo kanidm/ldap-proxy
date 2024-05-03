@@ -3,7 +3,7 @@ use hashbrown::HashSet;
 use ldap3_proto::LdapCodec;
 use ldap3_proto::{LdapFilter, LdapSearchScope};
 use openssl::ssl::{Ssl, SslAcceptor, SslConnector, SslFiletype, SslMethod, SslVerifyMode};
-use openssl::x509::X509;
+
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -22,7 +22,6 @@ use url::Url;
 
 use concread::arcache::{ARCache, ARCacheBuilder};
 
-mod acme;
 mod proxy;
 
 use crate::proxy::{CachedValue, SearchCacheKey};
@@ -36,20 +35,6 @@ pub enum ProcessingError {
     FileParsing(#[from] toml::de::Error),
     #[error("IO error")]
     StdError(#[from] std::io::Error),
-}
-
-#[derive(Debug, clap::Parser, Deserialize)]
-struct ConfAcme {
-    acme_url: String,
-    acme_email: String,
-    acme_domain: String,
-    /* acme_private_key_path: PathBuf,
-    acme_ca_path: PathBuf,
-    acme_private_key_password: Option<String>,
-    acme_ca_password: Option<String>,
-    acme_port: Option<u16>,
-    acme_protocol: Option<String>,
-    acme_early_data: bool, */
 }
 
 #[derive(Debug, clap::Parser)]
@@ -75,7 +60,6 @@ struct Config {
     tls_key: PathBuf,
     tls_chain: PathBuf,
     ssl: bool,
-    acme: ConfAcme,
     #[serde(default = "default_cache_bytes")]
     cache_bytes: usize,
     #[serde(default = "default_cache_entry_timeout")]
@@ -474,11 +458,6 @@ fn config_parse(opt: &Opt) -> Result<Config, ProcessingError> {
 async fn main() -> Result<(), ProcessingError> {
     let opt = Opt::parse();
     let sync_config = config_parse(&opt)?;
-
-    if !sync_config.acme.acme_domain.is_empty() {
-        println!("Starting ACME server");
-        acme::request_cert(sync_config.acme).await;
-    }
 
     let level = if opt.debug {
         LevelFilter::TRACE
