@@ -17,6 +17,7 @@ use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tokio_openssl::SslStream;
 use tokio_util::codec::{FramedRead, FramedWrite};
+use tracing::instrument::WithSubscriber;
 use tracing_forest::{traits::*, util::*};
 use url::Url;
 
@@ -471,5 +472,6 @@ async fn main() -> Result<(), ProcessingError> {
         .build_on(|subscriber| subscriber.with(level))
         .on(setup(&opt))
         .await;
+
     Ok(())
 }

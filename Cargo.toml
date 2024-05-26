@@ -33,9 +33,14 @@ tokio-stream = { version = "0.1.15",features = ["full"]}
 tracing = { version = "^0.1.40", features = ["max_level_trace", "release_max_level_debug"] }
 
 tracing-forest = { version = "0.1.6", features = ["chrono", "smallvec", "tokio"] }
+tracing-subscriber = "0.3"
+
 url = { version = "^2.5.0", features = ["serde"] }
 
 ldap3_proto = { version = "0.4.3", features = ["serde"] }
+
+
+
 uuid = { version = "1.7.0", features = ["serde"] }
 
 [patch.crates-io]
