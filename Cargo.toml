@@ -18,7 +18,7 @@ tokio = { version = "^1.38.0", features = ["rt", "rt-multi-thread", "macros", "n
 tokio-util = { version = "^0.7.11", features = ["codec"] }
 tokio-openssl = "^0.6.4"
 
-toml = "^0.8.13"
+toml = "^0.8.14"
 
 tracing = { version = "^0.1.40", features = ["max_level_trace", "release_max_level_debug"] }
 
