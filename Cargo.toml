@@ -14,11 +14,11 @@ hashbrown = { version = "0.14", features = ["serde"] }
 openssl = "^0.10.66"
 serde = { version = "^1.0.204", features = ["derive"] }
 tikv-jemallocator = "0.6"
-tokio = { version = "^1.38.1", features = ["rt", "rt-multi-thread", "macros", "net", "signal", "io-util"] }
+tokio = { version = "^1.39.2", features = ["rt", "rt-multi-thread", "macros", "net", "signal", "io-util"] }
 tokio-util = { version = "^0.7.11", features = ["codec"] }
 tokio-openssl = "^0.6.4"
 
-toml = "^0.8.15"
+toml = "^0.8.16"
 
 tracing = { version = "^0.1.40", features = ["max_level_trace", "release_max_level_debug"] }
 
