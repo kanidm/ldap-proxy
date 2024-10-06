@@ -9,8 +9,8 @@ edition = "2021"
 
 concread = "^0.5.3"
 clap = { version = "4.5", features = ["derive", "env"] }
-futures-util = { version = "^0.3.30", features = ["sink"] }
-hashbrown = { version = "0.14", features = ["serde"] }
+futures-util = { version = "^0.3.31", features = ["sink"] }
+hashbrown = { version = "0.15", features = ["serde"] }
 openssl = "^0.10.66"
 serde = { version = "^1.0.210", features = ["derive"] }
 tikv-jemallocator = "0.6"
