@@ -20,7 +20,7 @@ tokio-openssl = "^0.6.5"
 
 toml = "^0.8.19"
 
-tracing = { version = "^0.1.40", features = ["max_level_trace", "release_max_level_debug"] }
+tracing = { version = "^0.1.41", features = ["max_level_trace", "release_max_level_debug"] }
 
 tracing-forest = { version = "0.1.6", features = ["chrono", "smallvec", "tokio"] }
 url = { version = "^2.5.2", features = ["serde"] }
