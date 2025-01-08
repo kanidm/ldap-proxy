@@ -29,7 +29,7 @@ jobs:
           # Must use OCI exporter for multi-arch: https://github.com/docker/buildx/pull/1813
           outputs: type=oci,dest=/tmp/docker.tar
       # - name: Upload artifact
-      #   uses: actions/upload-artifact@v3
+      #   uses: actions/upload-artifact@v4
       #   with:
       #     name: docker
       #     path: /tmp/docker.tar
@@ -46,7 +46,7 @@ jobs:
 
   #   steps:
   #     - name: Download artifact
-  #       uses: actions/download-artifact@v3
+  #       uses: actions/download-artifact@v4
   #       with:
   #         name: docker
   #         path: /tmp
