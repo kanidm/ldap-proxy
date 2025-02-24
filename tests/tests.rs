@@ -14,8 +14,7 @@ fn hello_world() {
 fn test_config_load() {
     assert!(toml::from_str::<Config>("").is_err());
 
-    let load_config = serde_json::from_str::<Config>(include_str!("test_config.json"));
-    dbg!(&load_config);
+    let load_config = toml::from_str::<Config>(include_str!("test_config.toml"));
     assert!(load_config.is_ok());
 
     assert_eq!(
