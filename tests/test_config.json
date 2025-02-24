@@ -1,0 +1,19 @@
+{
+    "bind": "127.0.0.1:3636",
+    "tls_chain": "/etc/ldap-proxy/chain.pem",
+    "tls_key": "/etc/ldap-proxy/key.pem",
+    "ldap_ca": "/etc/ldap-proxy/ldap-ca.pem",
+    "ldap_url": "ldaps://ldap.example.com",
+    "": {
+        "allowed_queries": [
+            ["", "base", {"present" : "cn"}]
+        ]
+    },
+    "cn=John Cena,dc=dooo,dc=do,dc=do,dc=doooooo": {
+        "allowed_queries": [
+            ["", "base", {"present" : "cn"}],
+            ["o=kanidm", "subtree", {"present" : "cn"}]
+        ]
+    },
+    "cn=Administrator": {}
+}

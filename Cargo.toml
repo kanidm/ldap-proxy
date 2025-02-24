@@ -29,6 +29,9 @@ ldap3_proto = { version = "0.6.0", features = ["serde"] }
 uuid = { version = "1.14.0", features = ["serde"] }
 
 [patch.crates-io]
+
+[dev-dependencies]
+serde_json = "1.0.139"
 # ldap3_proto = { path = "../ldap3/proto" }
 # ldap3_proto = { git = "https://github.com/kanidm/ldap3.git", rev = "63b77d71ea5e210d8c016c3e60dffed7bd644116" }
 
