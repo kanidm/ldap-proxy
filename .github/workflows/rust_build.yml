@@ -28,8 +28,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.8
-        with:
-          version: "v0.4.2"
       - name: "Build the workspace"
         run: cargo build
       - name: "Run cargo test"
