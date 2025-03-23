@@ -228,9 +228,9 @@ checksum = "acbf1af155f9b9ef647e42cdc158db4b64a1b61f743629225fde6f3e0be2a7c7"
 
 [[package]]
 name = "concread"
-version = "0.5.4"
+version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a06c26e76cd1d7a88a44324d0cf18b11589be552e97af09bee345f7e7334c6d"
+checksum = "cdefc169c45893a578093c2f90733e3c56b60e67b0a8670a16ade3437b2fe392"
 dependencies = [
  "ahash",
  "arc-swap",
