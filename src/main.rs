@@ -127,7 +127,7 @@ async fn ldaps_acceptor(
                 match accept_result {
                     Ok((tcpstream, client_socket_addr)) => {
                         let c_app_state = app_state.clone();
-                        let _ = tokio::spawn(ldaps_tls_acceptor( tcpstream, client_socket_addr, tls_parms.clone(), c_app_state ));
+                        tokio::spawn(ldaps_tls_acceptor( tcpstream, client_socket_addr, tls_parms.clone(), c_app_state ));
                     }
                     Err(e) => {
                         error!("LDAP acceptor error, continuing -> {:?}", e);
