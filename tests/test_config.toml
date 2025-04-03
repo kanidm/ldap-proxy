@@ -7,19 +7,19 @@ ldap_ca = "/etc/ldap-proxy/ldap-ca.pem"
 ldap_url = "ldaps://ldap.example.com"
 
 [""]
-allowed_queries = [["", "base", { present = "objectclass" }]]
+allowed_queries = [["", "base", "(objectclass=*)"]]
 
 ["cn=John Cena,dc=dooo,dc=do,dc=do,dc=doooooo"]
 allowed_queries = [
     [
         "",
         "base",
-        { present = "objectclass" },
+        "(objectclass=*)"
     ],
     [
         "o=kanidm",
         "subtree",
-        { present = "objectclass" },
+        "(objectclass=*)"
     ],
 ]
 
