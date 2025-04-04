@@ -6,11 +6,6 @@ use ldap_proxy::Config;
 use std::time::{Duration, Instant};
 
 #[test]
-fn hello_world() {
-    assert_eq!(2 + 2, 4);
-}
-
-#[test]
 fn test_config_load() {
     assert!(toml::from_str::<Config>("").is_err());
 

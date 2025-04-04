@@ -1,27 +1,23 @@
+use crate::{AppState, DnConfig, LdapFilterWrapper};
 use futures_util::sink::SinkExt;
 use futures_util::stream::StreamExt;
 use ldap3_proto::control::LdapControl;
-use std::net::SocketAddr;
-use std::num::NonZeroUsize;
-use std::sync::Arc;
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio_util::codec::{FramedRead, FramedWrite};
-use tracing::{debug, error, info, span, trace, warn, Level};
-
+use ldap3_proto::proto::*;
+use ldap3_proto::LdapCodec;
 use openssl::ssl::{Ssl, SslConnector};
 use std::hash::Hash;
+use std::net::SocketAddr;
+use std::num::NonZeroUsize;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
+use std::time::Instant;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::io::{ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
 use tokio_openssl::SslStream;
-
-use ldap3_proto::proto::*;
-use ldap3_proto::LdapCodec;
-
-use std::time::Instant;
-
-use crate::{AppState, DnConfig};
+use tokio_util::codec::{FramedRead, FramedWrite};
+use tracing::{debug, error, info, span, trace, warn, Level};
 
 type CR = ReadHalf<SslStream<TcpStream>>;
 type CW = WriteHalf<SslStream<TcpStream>>;
@@ -76,9 +72,14 @@ pub async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
     mut r: FramedRead<R, LdapCodec>,
     mut w: FramedWrite<W, LdapCodec>,
     client_address: SocketAddr,
+    reported_client_address: Option<SocketAddr>,
     app_state: Arc<AppState>,
 ) {
-    info!("Accept from {}", client_address);
+    if let Some(reported_client_address) = reported_client_address {
+        info!(?reported_client_address, via = ?client_address, "new client");
+    } else {
+        info!(?client_address, "new client");
+    };
 
     // We always start unbound.
     let mut state = ClientState::Unbound;
@@ -217,7 +218,13 @@ pub async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                     debug!("All queries are allowed");
                 } else {
                     // Let's check the query details.
-                    let allow_key = (sr.base.clone(), sr.scope.clone(), sr.filter.clone());
+                    let allow_key = (
+                        sr.base.clone(),
+                        sr.scope.clone(),
+                        LdapFilterWrapper {
+                            inner: sr.filter.clone(),
+                        },
+                    );
 
                     if config.allowed_queries.contains(&allow_key) {
                         // Good to proceed.

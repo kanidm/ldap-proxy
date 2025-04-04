@@ -11,27 +11,29 @@
 #![deny(clippy::trivially_copy_pass_by_ref)]
 
 #[global_allocator]
-static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use clap::Parser;
+use concread::arcache::ARCacheBuilder;
 use ldap3_proto::LdapCodec;
-use ldap_proxy::{AppState, Config};
-use std::fs::File;
-use std::io::Read;
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::broadcast;
-use tracing_forest::{traits::*, util::*};
-
+use ldap_proxy::{proxy, AddrInfoSource, AppState, Config};
 use openssl::ssl::{Ssl, SslAcceptor, SslConnector, SslFiletype, SslMethod, SslVerifyMode};
 use openssl::x509::X509;
+use std::fs::File;
+use std::io::Read;
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::TcpListener;
+use tokio::net::TcpStream;
+use tokio::sync::broadcast;
 use tokio_openssl::SslStream;
 use tokio_util::codec::{FramedRead, FramedWrite};
-
-use concread::arcache::ARCacheBuilder;
-use ldap_proxy::proxy::client_process;
+use tracing::span;
+use tracing_forest::{traits::*, util::*};
+// use tracing_forest::{traits::*, util::*};
 
 const DEFAULT_CONFIG_PATH: &str = "/etc/kanidm/ldap-proxy";
 
@@ -44,13 +46,78 @@ struct Opt {
     config: PathBuf,
 }
 
+async fn ldaps_tls_acceptor(
+    tcpstream: TcpStream,
+    client_socket_addr: SocketAddr,
+    tls_parms: SslAcceptor,
+    app_state: Arc<AppState>,
+) {
+    use haproxy_protocol::{ProxyHdrV2, RemoteAddress};
+    let span = span!(Level::DEBUG, "tls_accept");
+    let _enter = span.enter();
+
+    let max_incoming_ber_size = app_state.max_incoming_ber_size;
+
+    let (tcpstream, reported_socket_addr) = match app_state.remote_ip_addr_info {
+        AddrInfoSource::None => (tcpstream, None),
+        AddrInfoSource::ProxyV2 => match ProxyHdrV2::parse_from_read(tcpstream).await {
+            Ok((tcpstream, hdr)) => {
+                let remote_socket_addr = match hdr.to_remote_addr() {
+                    RemoteAddress::Local => {
+                        debug!("haproxy check");
+                        return;
+                    }
+                    RemoteAddress::TcpV4 { src, dst: _ } => SocketAddr::from(src),
+                    RemoteAddress::TcpV6 { src, dst: _ } => SocketAddr::from(src),
+                    remote_addr => {
+                        error!(?remote_addr, "remote address in proxy header is invalid");
+                        return;
+                    }
+                };
+
+                (tcpstream, Some(remote_socket_addr))
+            }
+            Err(err) => {
+                error!(?err, "Unable to process proxy v2 header");
+                return;
+            }
+        },
+    };
+
+    debug!(remote_addr_source = ?app_state.remote_ip_addr_info, ?reported_socket_addr);
+
+    let mut tlsstream = match Ssl::new(tls_parms.context())
+        .and_then(|tls_obj| SslStream::new(tls_obj, tcpstream))
+    {
+        Ok(ta) => ta,
+        Err(e) => {
+            error!("LDAP TLS setup error -> {:?}", e);
+            return;
+        }
+    };
+    if let Err(e) = SslStream::accept(Pin::new(&mut tlsstream)).await {
+        error!("LDAP TLS accept error -> {:?}", e);
+        return;
+    };
+    let (r, w) = tokio::io::split(tlsstream);
+    let r = FramedRead::new(r, LdapCodec::new(max_incoming_ber_size));
+    let w = FramedWrite::new(w, LdapCodec::new(max_incoming_ber_size));
+
+    tokio::spawn(proxy::client_process(
+        r,
+        w,
+        client_socket_addr,
+        reported_socket_addr,
+        app_state,
+    ));
+}
+
 async fn ldaps_acceptor(
     listener: TcpListener,
     tls_parms: SslAcceptor,
     mut broadcast_rx: broadcast::Receiver<bool>,
     app_state: Arc<AppState>,
 ) {
-    let max_incoming_ber_size = app_state.max_incoming_ber_size;
     loop {
         tokio::select! {
             _ = broadcast_rx.recv() => {
@@ -59,24 +126,8 @@ async fn ldaps_acceptor(
             accept_result = listener.accept() => {
                 match accept_result {
                     Ok((tcpstream, client_socket_addr)) => {
-                        let mut tlsstream = match Ssl::new(tls_parms.context())
-                            .and_then(|tls_obj| SslStream::new(tls_obj, tcpstream))
-                        {
-                            Ok(ta) => ta,
-                            Err(e) => {
-                                error!("LDAP TLS setup error, continuing -> {:?}", e);
-                                continue;
-                            }
-                        };
-                        if let Err(e) = SslStream::accept(Pin::new(&mut tlsstream)).await {
-                            error!("LDAP TLS accept error, continuing -> {:?}", e);
-                            continue;
-                        };
-                        let (r, w) = tokio::io::split(tlsstream);
-                        let r = FramedRead::new(r, LdapCodec::new(max_incoming_ber_size));
-                        let w = FramedWrite::new(w, LdapCodec::new(max_incoming_ber_size));
                         let c_app_state = app_state.clone();
-                        tokio::spawn(client_process(r, w, client_socket_addr, c_app_state));
+                        tokio::spawn(ldaps_tls_acceptor( tcpstream, client_socket_addr, tls_parms.clone(), c_app_state ));
                     }
                     Err(e) => {
                         error!("LDAP acceptor error, continuing -> {:?}", e);
@@ -239,6 +290,7 @@ async fn setup(opt: &Opt) {
     let max_incoming_ber_size = sync_config.max_incoming_ber_size;
     let max_proxy_ber_size = sync_config.max_proxy_ber_size;
     let allow_all_bind_dns = sync_config.allow_all_bind_dns;
+    let remote_ip_addr_info = sync_config.remote_ip_addr_info;
 
     let app_state = Arc::new(AppState {
         tls_params,
@@ -249,6 +301,7 @@ async fn setup(opt: &Opt) {
         max_incoming_ber_size,
         max_proxy_ber_size,
         allow_all_bind_dns,
+        remote_ip_addr_info,
     });
 
     // Setup the TLS server parameters
