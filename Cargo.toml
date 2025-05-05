@@ -16,7 +16,7 @@ clap = { version = "4.5", features = ["derive", "env"] }
 futures-util = { version = "^0.3.31", features = ["sink"] }
 haproxy-protocol = { version = "0.0.1", features = ["tokio"] }
 hashbrown = { version = "0.15", features = ["serde"] }
-ldap3_proto = { version = "0.6.0", features = ["serde"] }
+ldap3_proto = { version = "0.6.2", features = ["serde"] }
 mimalloc = "0.1.46"
 openssl = "^0.10.72"
 serde = { version = "^1.0.219", features = ["derive"] }
@@ -24,7 +24,7 @@ serde_with = { version = "3.12.0", features = ["macros"] }
 tokio = { version = "^1.44.2", features = ["rt", "rt-multi-thread", "macros", "net", "signal", "io-util"] }
 tokio-util = { version = "^0.7.15", features = ["codec"] }
 tokio-openssl = "^0.6.5"
-toml = "^0.8.21"
+toml = "^0.8.22"
 tracing = { version = "^0.1.41", features = ["max_level_trace", "release_max_level_debug"] }
 tracing-forest = { version = "0.1.6", features = ["chrono", "smallvec", "tokio"] }
 url = { version = "^2.5.4", features = ["serde"] }
