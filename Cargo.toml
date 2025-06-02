@@ -18,7 +18,7 @@ haproxy-protocol = { version = "0.0.1", features = ["tokio"] }
 hashbrown = { version = "0.15", features = ["serde"] }
 ldap3_proto = { version = "0.6.2", features = ["serde"] }
 mimalloc = "0.1.46"
-openssl = "^0.10.72"
+openssl = "^0.10.73"
 serde = { version = "^1.0.219", features = ["derive"] }
 serde_with = { version = "3.12.0", features = ["macros"] }
 tokio = { version = "^1.45.1", features = ["rt", "rt-multi-thread", "macros", "net", "signal", "io-util"] }
