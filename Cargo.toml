@@ -28,5 +28,5 @@ toml = "^0.9.5"
 tracing = { version = "^0.1.41", features = ["max_level_trace", "release_max_level_debug"] }
 tracing-forest = { version = "0.2.0", features = ["chrono", "smallvec", "tokio"] }
 url = { version = "^2.5.7", features = ["serde"] }
-uuid = { version = "1.18.0", features = ["serde"] }
+uuid = { version = "1.18.1", features = ["serde"] }
 
