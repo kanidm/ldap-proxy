@@ -14,11 +14,11 @@ edition = "2021"
 concread = "^0.5.7"
 clap = { version = "4.5", features = ["derive", "env"] }
 futures-util = { version = "^0.3.31", features = ["sink"] }
-haproxy-protocol = { version = "0.0.1", features = ["tokio"] }
+haproxy-protocol = { version = "0.0.3", features = ["tokio"] }
 hashbrown = { version = "0.16", features = ["serde"] }
 ldap3_proto = { version = "0.6.2", features = ["serde"] }
 mimalloc = "0.1.48"
-openssl = "^0.10.74"
+openssl = "^0.10.75"
 serde = { version = "^1.0.228", features = ["derive"] }
 serde_with = { version = "3.15.1", features = ["macros"] }
 tokio = { version = "^1.48.0", features = ["rt", "rt-multi-thread", "macros", "net", "signal", "io-util"] }
@@ -26,7 +26,7 @@ tokio-util = { version = "^0.7.17", features = ["codec"] }
 tokio-openssl = "^0.6.5"
 toml = "^0.9.8"
 tracing = { version = "^0.1.41", features = ["max_level_trace", "release_max_level_debug"] }
-tracing-forest = { version = "0.2.0", features = ["chrono", "smallvec", "tokio"] }
+tracing-forest = { version = "0.3.0", features = ["chrono", "smallvec", "tokio"] }
 url = { version = "^2.5.7", features = ["serde"] }
 uuid = { version = "1.18.1", features = ["serde"] }
 
