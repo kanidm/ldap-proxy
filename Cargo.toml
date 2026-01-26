@@ -14,7 +14,7 @@ edition = "2021"
 concread = "^0.5.8"
 clap = { version = "4.5", features = ["derive", "env"] }
 futures-util = { version = "^0.3.31", features = ["sink"] }
-haproxy-protocol = { version = "0.0.3", features = ["tokio"] }
+haproxy-protocol = { version = "0.0.4", features = ["tokio"] }
 hashbrown = { version = "0.16", features = ["serde"] }
 ldap3_proto = { version = "0.6.2", features = ["serde"] }
 mimalloc = "0.1.48"
@@ -28,5 +28,5 @@ toml = "^0.9.11"
 tracing = { version = "^0.1.44", features = ["max_level_trace", "release_max_level_debug"] }
 tracing-forest = { version = "0.3.1", features = ["chrono", "smallvec", "tokio"] }
 url = { version = "^2.5.8", features = ["serde"] }
-uuid = { version = "1.19.0", features = ["serde"] }
+uuid = { version = "1.20.0", features = ["serde"] }
 
