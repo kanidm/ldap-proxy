@@ -11,7 +11,7 @@ edition = "2021"
 # haproxy-protocol = { git = "https://github.com/kanidm/haproxy-protocol.git", rev = "f9f94e2a58f52a0c6099260930b6f1db213aef69" }
 
 [dependencies]
-concread = "^0.5.8"
+concread = "^0.5.9"
 clap = { version = "4.5", features = ["derive", "env"] }
 futures-util = { version = "^0.3.31", features = ["sink"] }
 haproxy-protocol = { version = "0.0.4", features = ["tokio"] }
