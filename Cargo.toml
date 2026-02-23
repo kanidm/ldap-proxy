@@ -24,7 +24,7 @@ serde_with = { version = "3.16.1", features = ["macros"] }
 tokio = { version = "^1.49.0", features = ["rt", "rt-multi-thread", "macros", "net", "signal", "io-util"] }
 tokio-util = { version = "^0.7.18", features = ["codec"] }
 tokio-openssl = "^0.6.5"
-toml = "^1.0.1"
+toml = "^1.0.3"
 tracing = { version = "^0.1.44", features = ["max_level_trace", "release_max_level_debug"] }
 tracing-forest = { version = "0.3.1", features = ["chrono", "smallvec", "tokio"] }
 url = { version = "^2.5.8", features = ["serde"] }
