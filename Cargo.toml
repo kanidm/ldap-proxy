@@ -21,12 +21,12 @@ mimalloc = "0.1.48"
 openssl = "^0.10.75"
 serde = { version = "^1.0.228", features = ["derive"] }
 serde_with = { version = "3.17.0", features = ["macros"] }
-tokio = { version = "^1.49.0", features = ["rt", "rt-multi-thread", "macros", "net", "signal", "io-util"] }
+tokio = { version = "^1.50.0", features = ["rt", "rt-multi-thread", "macros", "net", "signal", "io-util"] }
 tokio-util = { version = "^0.7.18", features = ["codec"] }
 tokio-openssl = "^0.6.5"
-toml = "^1.0.3"
+toml = "^1.0.6"
 tracing = { version = "^0.1.44", features = ["max_level_trace", "release_max_level_debug"] }
 tracing-forest = { version = "0.3.1", features = ["chrono", "smallvec", "tokio"] }
 url = { version = "^2.5.8", features = ["serde"] }
-uuid = { version = "1.21.0", features = ["serde"] }
+uuid = { version = "1.22.0", features = ["serde"] }
 
