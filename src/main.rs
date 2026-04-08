@@ -16,24 +16,24 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 use clap::Parser;
 use concread::arcache::ARCacheBuilder;
 use ldap3_proto::LdapCodec;
-use ldap_proxy::{proxy, AddrInfoSource, AppState, Config};
-use openssl::ssl::{Ssl, SslAcceptor, SslConnector, SslFiletype, SslMethod, SslVerifyMode};
-use openssl::x509::X509;
+use ldap_proxy::{proxy, AddrInfoSource, AppState, Config, LDAP_CLIENT_CONN_TIMEOUT};
+use rustls::{
+    pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer, ServerName},
+    ClientConfig, ServerConfig,
+};
 use std::fs::File;
 use std::io::Read;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 use tokio::sync::broadcast;
-use tokio_openssl::SslStream;
+use tokio::time::timeout;
+use tokio_rustls::{TlsAcceptor, TlsConnector};
 use tokio_util::codec::{FramedRead, FramedWrite};
-use tracing::span;
 use tracing_forest::{traits::*, util::*};
-// use tracing_forest::{traits::*, util::*};
 
 const DEFAULT_CONFIG_PATH: &str = "/etc/kanidm/ldap-proxy";
 
@@ -49,19 +49,22 @@ struct Opt {
 async fn ldaps_tls_acceptor(
     tcpstream: TcpStream,
     client_socket_addr: SocketAddr,
-    tls_parms: SslAcceptor,
+    tls_acceptor: TlsAcceptor,
     app_state: Arc<AppState>,
 ) {
     use haproxy_protocol::{ProxyHdrV2, RemoteAddress};
-    let span = span!(Level::DEBUG, "tls_accept");
-    let _enter = span.enter();
 
     let max_incoming_ber_size = app_state.max_incoming_ber_size;
 
     let (tcpstream, reported_socket_addr) = match app_state.remote_ip_addr_info {
         AddrInfoSource::None => (tcpstream, None),
-        AddrInfoSource::ProxyV2 => match ProxyHdrV2::parse_from_read(tcpstream).await {
-            Ok((tcpstream, hdr)) => {
+        AddrInfoSource::ProxyV2 => match timeout(
+            LDAP_CLIENT_CONN_TIMEOUT,
+            ProxyHdrV2::parse_from_read(tcpstream),
+        )
+        .await
+        {
+            Ok(Ok((tcpstream, hdr))) => {
                 let remote_socket_addr = match hdr.to_remote_addr() {
                     RemoteAddress::Local => {
                         debug!("haproxy check");
@@ -77,8 +80,12 @@ async fn ldaps_tls_acceptor(
 
                 (tcpstream, Some(remote_socket_addr))
             }
-            Err(err) => {
+            Ok(Err(err)) => {
                 error!(?err, "Unable to process proxy v2 header");
+                return;
+            }
+            Err(_) => {
+                error!("proxy v2 header timeout");
                 return;
             }
         },
@@ -86,19 +93,18 @@ async fn ldaps_tls_acceptor(
 
     debug!(remote_addr_source = ?app_state.remote_ip_addr_info, ?reported_socket_addr);
 
-    let mut tlsstream = match Ssl::new(tls_parms.context())
-        .and_then(|tls_obj| SslStream::new(tls_obj, tcpstream))
-    {
-        Ok(ta) => ta,
-        Err(e) => {
-            error!("LDAP TLS setup error -> {:?}", e);
+    let tlsstream = match timeout(LDAP_CLIENT_CONN_TIMEOUT, tls_acceptor.accept(tcpstream)).await {
+        Ok(Ok(ta)) => ta,
+        Ok(Err(err)) => {
+            error!(?err, "LDAP TLS setup error");
+            return;
+        }
+        Err(_) => {
+            error!("LDAP TLS timeout error");
             return;
         }
     };
-    if let Err(e) = SslStream::accept(Pin::new(&mut tlsstream)).await {
-        error!("LDAP TLS accept error -> {:?}", e);
-        return;
-    };
+
     let (r, w) = tokio::io::split(tlsstream);
     let r = FramedRead::new(r, LdapCodec::new(max_incoming_ber_size));
     let w = FramedWrite::new(w, LdapCodec::new(max_incoming_ber_size));
@@ -114,7 +120,7 @@ async fn ldaps_tls_acceptor(
 
 async fn ldaps_acceptor(
     listener: TcpListener,
-    tls_parms: SslAcceptor,
+    tls_parms: TlsAcceptor,
     mut broadcast_rx: broadcast::Receiver<bool>,
     app_state: Arc<AppState>,
 ) {
@@ -228,54 +234,34 @@ async fn setup(opt: &Opt) {
         return;
     }
 
-    let mut tls_builder = match SslConnector::builder(SslMethod::tls_client()) {
-        Ok(t) => t,
-        Err(e) => {
-            error!("Unable to create tls client -> {:?}", e);
-            return;
-        }
-    };
+    let mut root_cert_store = rustls::RootCertStore::empty();
 
-    let cert_store = tls_builder.cert_store_mut();
-    let mut file = match File::open(&sync_config.ldap_ca) {
-        Ok(f) => f,
-        Err(e) => {
-            error!(?e, "Unable to open {:?}", &sync_config.ldap_ca);
-            return;
-        }
-    };
-
-    let mut pem = Vec::new();
-    if let Err(e) = file.read_to_end(&mut pem) {
-        error!(?e, "Unable to read {:?}", &sync_config.ldap_ca);
-        return;
-    }
-
-    let ca_cert = match X509::from_pem(pem.as_slice()) {
+    let ca_cert = match CertificateDer::from_pem_file(&sync_config.ldap_ca) {
         Ok(c) => c,
-        Err(e) => {
-            error!(?e, "openssl");
+        Err(err) => {
+            error!(?err, "Invalid CA PEM File");
             return;
         }
     };
 
-    if let Err(e) = cert_store.add_cert(ca_cert).map(|()| {
-        debug!("Added {:?} to cert store", &sync_config.ldap_ca);
-    }) {
-        error!(?e, "openssl");
+    if let Err(err) = root_cert_store.add(ca_cert) {
+        error!(?err, "Failed to add CA to certificate store");
         return;
     };
 
-    let verify_param = tls_builder.verify_param_mut();
-    if let Err(e) = verify_param.set_host(hostname) {
-        error!(?e, "openssl");
-        return;
-    }
+    let tls_config = ClientConfig::builder()
+        .with_root_certificates(root_cert_store)
+        .with_no_client_auth();
 
-    // None for no cert verification
-    tls_builder.set_verify(SslVerifyMode::PEER);
+    let tls_connector = TlsConnector::from(Arc::new(tls_config));
 
-    let tls_params = tls_builder.build();
+    let tls_hostname = match ServerName::try_from(hostname.to_string()) {
+        Ok(h) => h,
+        Err(err) => {
+            error!(?err, "Invalid LDAP Server Hostname");
+            return;
+        }
+    };
 
     let Some(cache) = ARCacheBuilder::new()
         .set_size(sync_config.cache_bytes, 0)
@@ -293,7 +279,8 @@ async fn setup(opt: &Opt) {
     let remote_ip_addr_info = sync_config.remote_ip_addr_info;
 
     let app_state = Arc::new(AppState {
-        tls_params,
+        tls_connector,
+        tls_hostname,
         addrs,
         binddn_map: sync_config.binddn_map.clone(),
         cache,
@@ -305,35 +292,46 @@ async fn setup(opt: &Opt) {
     });
 
     // Setup the TLS server parameters
-    let mut tls_builder = match SslAcceptor::mozilla_intermediate_v5(SslMethod::tls()) {
-        Ok(t) => t,
-        Err(e) => {
-            error!("Unable to create tls acceptor -> {:?}", e);
+    let tls_chain_iter = match CertificateDer::pem_file_iter(&sync_config.tls_chain) {
+        Ok(tci) => tci,
+        Err(err) => {
+            error!(?err, "Failed to access tls certificate chain");
             return;
         }
     };
 
-    if let Err(e) = tls_builder.set_certificate_chain_file(&sync_config.tls_chain) {
-        error!("Unable to load certificate chain -> {:?}", e);
-        return;
-    }
+    let tls_chain = match tls_chain_iter.collect::<Result<Vec<_>, _>>() {
+        Ok(tci) => tci,
+        Err(err) => {
+            error!(?err, "Failed to parse tls certificate chain");
+            return;
+        }
+    };
 
-    if let Err(e) = tls_builder.set_private_key_file(&sync_config.tls_key, SslFiletype::PEM) {
-        error!("Unable to load private key -> {:?}", e);
-        return;
-    }
+    let tls_key = match PrivateKeyDer::from_pem_file(&sync_config.tls_key) {
+        Ok(pk) => pk,
+        Err(err) => {
+            error!(?err, "Error reading server private key");
+            return;
+        }
+    };
 
-    if let Err(e) = tls_builder.check_private_key() {
-        error!("Unable to validate private key -> {:?}", e);
-        return;
-    }
+    let tls_config = match ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(tls_chain, tls_key)
+    {
+        Ok(tc) => tc,
+        Err(err) => {
+            error!(?err, "Failed to build TLS Server Configuration");
+            return;
+        }
+    };
 
-    // Done!
-    let tls_server_params = tls_builder.build();
+    let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config));
 
     // Setup the acceptor.
     let acceptor = tokio::spawn(async move {
-        ldaps_acceptor(listener, tls_server_params, broadcast_rx, app_state).await
+        ldaps_acceptor(listener, tls_acceptor, broadcast_rx, app_state).await
     });
 
     // Finally, block on the signal handler.

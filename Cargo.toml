@@ -1,6 +1,6 @@
 [package]
 name = "ldap-proxy"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -18,12 +18,12 @@ haproxy-protocol = { version = "0.0.4", features = ["tokio"] }
 hashbrown = { version = "0.16", features = ["serde"] }
 ldap3_proto = { version = "0.7.0", features = ["serde"] }
 mimalloc = "0.1.48"
-openssl = "^0.10.76"
+rustls = "0.23.37"
 serde = { version = "^1.0.228", features = ["derive"] }
 serde_with = { version = "3.18.0", features = ["macros"] }
 tokio = { version = "^1.51.0", features = ["rt", "rt-multi-thread", "macros", "net", "signal", "io-util"] }
+tokio-rustls = "0.26.4"
 tokio-util = { version = "^0.7.18", features = ["codec"] }
-tokio-openssl = "^0.6.5"
 toml = "^1.1.2"
 tracing = { version = "^0.1.44", features = ["max_level_trace", "release_max_level_debug"] }
 tracing-forest = { version = "0.3.1", features = ["chrono", "smallvec", "tokio"] }

@@ -2,7 +2,7 @@ use concread::arcache::ARCache;
 use hashbrown::HashSet;
 use ldap3_proto::parse_ldap_filter_str;
 use ldap3_proto::{LdapFilter, LdapSearchScope};
-use openssl::ssl::SslConnector;
+use rustls::pki_types::ServerName;
 use serde::Deserialize;
 use serde_with::DeserializeFromStr;
 use std::collections::BTreeMap;
@@ -10,6 +10,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
+use tokio_rustls::TlsConnector;
 use url::Url;
 
 pub mod proxy;
@@ -18,8 +19,12 @@ use crate::proxy::{CachedValue, SearchCacheKey};
 
 const MEGABYTES: usize = 1048576;
 
+pub const LDAP_CLIENT_CONN_TIMEOUT: Duration = Duration::from_secs(30);
+pub const LDAP_CLIENT_IO_TIMEOUT: Duration = Duration::from_secs(300);
+
 pub struct AppState {
-    pub tls_params: SslConnector,
+    pub tls_connector: TlsConnector,
+    pub tls_hostname: ServerName<'static>,
     pub addrs: Vec<SocketAddr>,
     // Cache later here.
     pub binddn_map: BTreeMap<String, DnConfig>,
