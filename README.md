@@ -48,6 +48,12 @@ allowed_queries = [
     ["o=example", "subtree", "(objectclass=*)"],
 ]
 
+# In some cases you may want to map anonymous to an authenticated dn. This allows
+# setting the dn and credential that will be used in the mapping.
+#
+# map_to_dn: "uid=remote_user"
+# map_to_secret: "12345"
+
 ["cn=Administrator"]
 # If you don't specify allowed queries, all queries are granted
 
@@ -60,25 +66,6 @@ allowed_queries = [
 
 ## Where do I get it?
 
-* OpenSUSE: `zypper in ldap-proxy`
 * docker: `docker pull firstyear/ldap-proxy:latest`
-
-## FAQ
-
-### Why can't ldap-proxy running under systemd read my certificates?
-
-Because we use systemd dynamic users. This means that ldap-proxy is always isolated in a sandboxed
-user, and that user can dynamically change it's uid/gid.
-
-To resolve this, you need to add ldap-proxy to have a supplemental group that can read your certs.
-
-```
-# systemctl edit ldap-proxy
-[Service]
-SupplementaryGroups=certbot
-```
-
-Then restart ldap-proxy. Also be sure to check that the group has proper execute bits along the
-directory paths and that the certs are readable to the group!
-
+* podman: `podman pull docker.io/firstyear/ldap-proxy:latest`
 

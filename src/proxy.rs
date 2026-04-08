@@ -44,10 +44,14 @@ impl CachedValue {
     }
 }
 
+// We allow the large enum to exist as we always do a mem swap from unbound to authenticated, so
+// the memory layout penalty doesn't apply.
+#[allow(clippy::large_enum_variant)]
 enum ClientState {
     Unbound,
     Authenticated {
         dn: String,
+        display_dn: String,
         config: DnConfig,
         client: BasicLdapClient,
     },
@@ -93,7 +97,7 @@ pub async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                 _,
                 LdapMsg {
                     msgid,
-                    op: LdapOp::BindRequest(lbr),
+                    op: LdapOp::BindRequest(mut lbr),
                     ctrl,
                 },
             ) => {
@@ -128,6 +132,29 @@ pub async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                 // need to configure.
 
                 let dn = lbr.dn.clone();
+                if let Some(map_to_dn) = config.map_to_dn.clone() {
+                    // The dn from the client is internally remapped by the proxy. This
+                    // means we need to modify the bind request to update the dn and
+                    // the credential used.
+
+                    lbr.dn = map_to_dn.clone();
+
+                    if let Some(map_to_secret) = config.map_to_secret.clone() {
+                        lbr.cred = LdapBindCred::Simple(map_to_secret);
+                    }
+                };
+
+                let display_dn = if dn.is_empty() {
+                    "anonymous"
+                } else {
+                    dn.as_str()
+                };
+
+                let display_dn = if let Some(map_to_dn) = config.map_to_dn.as_ref() {
+                    format!("{} (mapped to {})", display_dn, map_to_dn)
+                } else {
+                    display_dn.to_string()
+                };
 
                 // We need the client to connect *and* bind to proceed here!
                 let mut client = match BasicLdapClient::build(
@@ -178,8 +205,13 @@ pub async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                 };
 
                 if valid {
-                    info!("Successful bind for {}", dn);
-                    Some(ClientState::Authenticated { dn, config, client })
+                    info!("Successful bind for {}", display_dn);
+                    Some(ClientState::Authenticated {
+                        dn,
+                        display_dn,
+                        config,
+                        client,
+                    })
                 } else {
                     None
                 }
@@ -202,6 +234,7 @@ pub async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
             (
                 ClientState::Authenticated {
                     dn,
+                    display_dn: _,
                     config,
                     ref mut client,
                 },
@@ -368,7 +401,8 @@ pub async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
             // Extended Requests - Generally has whoami.
             (
                 ClientState::Authenticated {
-                    dn,
+                    dn: _,
+                    display_dn,
                     config: _,
                     client: _,
                 },
@@ -387,7 +421,7 @@ pub async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                             referral: vec![],
                         },
                         name: None,
-                        value: Some(Vec::from(dn.as_str())),
+                        value: Some(Vec::from(display_dn.as_str())),
                     }),
                     _ => LdapOp::ExtendedResponse(LdapExtendedResponse {
                         res: LdapResult {
