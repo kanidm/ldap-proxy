@@ -1,26 +1,27 @@
-use crate::{AppState, DnConfig, LdapFilterWrapper};
+use crate::{
+    AppState, DnConfig, LdapFilterWrapper, LDAP_CLIENT_CONN_TIMEOUT, LDAP_CLIENT_IO_TIMEOUT,
+};
 use futures_util::sink::SinkExt;
 use futures_util::stream::StreamExt;
 use ldap3_proto::control::LdapControl;
 use ldap3_proto::proto::*;
 use ldap3_proto::LdapCodec;
-use openssl::ssl::{Ssl, SslConnector};
+use rustls::pki_types::ServerName;
 use std::hash::Hash;
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
-use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
 use std::time::Instant;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::io::{ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
-use tokio_openssl::SslStream;
+use tokio::time::timeout;
+use tokio_rustls::{client::TlsStream, TlsConnector};
 use tokio_util::codec::{FramedRead, FramedWrite};
 use tracing::{debug, error, info, span, trace, warn, Level};
 
-type CR = ReadHalf<SslStream<TcpStream>>;
-type CW = WriteHalf<SslStream<TcpStream>>;
+type CR = ReadHalf<TlsStream<TcpStream>>;
+type CW = WriteHalf<TlsStream<TcpStream>>;
 
 #[derive(Debug, Clone, Hash, PartialOrd, Ord, Eq, PartialEq)]
 pub struct SearchCacheKey {
@@ -85,7 +86,7 @@ pub async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
     let mut state = ClientState::Unbound;
 
     // Start to wait for incoming packets
-    while let Some(Ok(protomsg)) = r.next().await {
+    while let Ok(Some(Ok(protomsg))) = timeout(LDAP_CLIENT_IO_TIMEOUT, r.next()).await {
         let next_state = match (&mut state, protomsg) {
             // Doesn't matter what state we are in, any bind will trigger this process.
             (
@@ -131,7 +132,8 @@ pub async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                 // We need the client to connect *and* bind to proceed here!
                 let mut client = match BasicLdapClient::build(
                     &app_state.addrs,
-                    &app_state.tls_params,
+                    &app_state.tls_hostname,
+                    &app_state.tls_connector,
                     app_state.max_proxy_ber_size,
                 )
                 .await
@@ -451,31 +453,24 @@ impl BasicLdapClient {
 
     pub async fn build(
         addrs: &[SocketAddr],
-        tls_connector: &SslConnector,
+        hostname: &ServerName<'static>,
+        tls_connector: &TlsConnector,
         max_ber_size: Option<usize>,
     ) -> Result<Self, LdapError> {
-        let timeout = Duration::from_secs(5);
-
         let mut aiter = addrs.iter();
 
         let tcpstream = loop {
             if let Some(addr) = aiter.next() {
-                let sleep = tokio::time::sleep(timeout);
-                tokio::pin!(sleep);
-                tokio::select! {
-                    maybe_stream = TcpStream::connect(addr) => {
-                        match maybe_stream {
-                            Ok(t) => {
-                                trace!(?addr, "connection established");
-                                break t;
-                            }
-                            Err(e) => {
-                                trace!(?addr, ?e, "error");
-                                continue;
-                            }
-                        }
+                match timeout(LDAP_CLIENT_CONN_TIMEOUT, TcpStream::connect(addr)).await {
+                    Ok(Ok(t)) => {
+                        trace!(?addr, "connection established");
+                        break t;
                     }
-                    _ = &mut sleep => {
+                    Ok(Err(err)) => {
+                        trace!(?addr, ?err, "error");
+                        continue;
+                    }
+                    Err(_) => {
                         warn!(?addr, "timeout");
                         continue;
                     }
@@ -485,19 +480,22 @@ impl BasicLdapClient {
             }
         };
 
-        let mut tlsstream = Ssl::new(tls_connector.context())
-            .and_then(|tls_obj| SslStream::new(tls_obj, tcpstream))
-            .map_err(|e| {
-                error!(?e, "openssl");
-                LdapError::TlsError
-            })?;
-
-        SslStream::connect(Pin::new(&mut tlsstream))
-            .await
-            .map_err(|e| {
-                error!(?e, "openssl");
-                LdapError::TlsError
-            })?;
+        let tlsstream = match timeout(
+            LDAP_CLIENT_CONN_TIMEOUT,
+            tls_connector.connect(hostname.clone(), tcpstream),
+        )
+        .await
+        {
+            Ok(Ok(ts)) => ts,
+            Ok(err) => {
+                error!(?err, "Unable to establish TLS");
+                return Err(LdapError::TlsError);
+            }
+            Err(_) => {
+                error!("Timeout establishish TLS");
+                return Err(LdapError::TlsError);
+            }
+        };
 
         let (r, w) = tokio::io::split(tlsstream);
 
@@ -525,17 +523,24 @@ impl BasicLdapClient {
             ctrl,
         };
 
-        self.w.send(msg).await.map_err(|e| {
-            error!(?e, "unable to transmit to ldap server");
-            LdapError::Transport
-        })?;
+        match timeout(LDAP_CLIENT_IO_TIMEOUT, self.w.send(msg)).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(err)) => {
+                error!(?err, "unable to transmit to ldap server");
+                return Err(LdapError::Transport);
+            }
+            Err(_) => {
+                error!("timeout during transmit to ldap server");
+                return Err(LdapError::Transport);
+            }
+        };
 
-        match self.r.next().await {
-            Some(Ok(LdapMsg {
+        match timeout(LDAP_CLIENT_IO_TIMEOUT, self.r.next()).await {
+            Ok(Some(Ok(LdapMsg {
                 msgid,
                 op: LdapOp::BindResponse(bind_resp),
                 ctrl,
-            })) => {
+            }))) => {
                 if msgid == ck_msgid {
                     Ok((bind_resp, ctrl))
                 } else {
@@ -543,16 +548,20 @@ impl BasicLdapClient {
                     Err(LdapError::InvalidProtocolState)
                 }
             }
-            Some(Ok(msg)) => {
+            Ok(Some(Ok(msg))) => {
                 trace!(?msg);
                 Err(LdapError::InvalidProtocolState)
             }
-            Some(Err(e)) => {
+            Ok(Some(Err(e))) => {
                 error!(?e, "unable to receive from ldap server");
                 Err(LdapError::Transport)
             }
-            None => {
+            Ok(None) => {
                 error!("connection closed");
+                Err(LdapError::Transport)
+            }
+            Err(_) => {
+                error!("connection timeout");
                 Err(LdapError::Transport)
             }
         }
@@ -578,20 +587,27 @@ impl BasicLdapClient {
             ctrl,
         };
 
-        self.w.send(msg).await.map_err(|e| {
-            error!(?e, "unable to transmit to ldap server");
-            LdapError::Transport
-        })?;
+        match timeout(LDAP_CLIENT_IO_TIMEOUT, self.w.send(msg)).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(err)) => {
+                error!(?err, "unable to transmit to ldap server");
+                return Err(LdapError::Transport);
+            }
+            Err(_) => {
+                error!("timeout during transmit to ldap server");
+                return Err(LdapError::Transport);
+            }
+        };
 
         let mut entries = Vec::new();
         loop {
-            match self.r.next().await {
+            match timeout(LDAP_CLIENT_IO_TIMEOUT, self.r.next()).await {
                 // This terminates the iteration of entries.
-                Some(Ok(LdapMsg {
+                Ok(Some(Ok(LdapMsg {
                     msgid,
                     op: LdapOp::SearchResultDone(search_res),
                     ctrl,
-                })) => {
+                }))) => {
                     if msgid == ck_msgid {
                         break Ok((entries, search_res, ctrl));
                     } else {
@@ -599,11 +615,11 @@ impl BasicLdapClient {
                         break Err(LdapError::InvalidProtocolState);
                     }
                 }
-                Some(Ok(LdapMsg {
+                Ok(Some(Ok(LdapMsg {
                     msgid,
                     op: LdapOp::SearchResultEntry(search_entry),
                     ctrl,
-                })) => {
+                }))) => {
                     if msgid == ck_msgid {
                         entries.push((search_entry, ctrl))
                     } else {
@@ -611,16 +627,20 @@ impl BasicLdapClient {
                         break Err(LdapError::InvalidProtocolState);
                     }
                 }
-                Some(Ok(msg)) => {
+                Ok(Some(Ok(msg))) => {
                     trace!(?msg);
                     break Err(LdapError::InvalidProtocolState);
                 }
-                Some(Err(e)) => {
+                Ok(Some(Err(e))) => {
                     error!(?e, "unable to receive from ldap server");
                     break Err(LdapError::Transport);
                 }
-                None => {
+                Ok(None) => {
                     error!("connection closed");
+                    break Err(LdapError::Transport);
+                }
+                Err(_) => {
+                    error!("connection timeout");
                     break Err(LdapError::Transport);
                 }
             }
