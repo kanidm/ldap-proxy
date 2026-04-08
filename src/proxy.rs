@@ -215,7 +215,7 @@ async fn search<W: AsyncWrite + Unpin>(
     w: &mut FramedWrite<W, LdapCodec>,
     app_state: &AppState,
     search_request: SearchRequest<'_>,
-) -> Result<Option<ClientState>, LdapError> {
+) -> Result<(), LdapError> {
     let SearchRequest {
         sr,
         msgid,
@@ -265,7 +265,7 @@ async fn search<W: AsyncWrite + Unpin>(
                 LdapError::Transport
             })?;
 
-            return Ok(None);
+            return Ok(());
         }
     };
 
@@ -328,7 +328,7 @@ async fn search<W: AsyncWrite + Unpin>(
                     })?;
 
                     // Error sent, return with no state change.
-                    return Ok(None);
+                    return Ok(());
                 }
             }
         }
@@ -378,7 +378,7 @@ async fn search<W: AsyncWrite + Unpin>(
     app_state.cache.try_quiesce();
 
     // No state change
-    Ok(None)
+    Ok(())
 }
 
 #[instrument(level = "info", skip_all)]
@@ -471,6 +471,56 @@ pub async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                 break;
             }
 
+            // Unbound handler
+            (
+                ClientState::Unbound,
+                LdapMsg {
+                    msgid,
+                    op: LdapOp::SearchRequest(sr),
+                    ctrl,
+                },
+            ) => {
+                // We have to trigger a bind first in case we have a mapping.
+                let lbr = LdapBindRequest {
+                    dn: "".to_string(),
+                    cred: LdapBindCred::Simple("".to_string()),
+                };
+
+                let mut next_state = match bind(&mut w, &app_state, lbr, 0, Vec::default()).await {
+                    Ok(ns) => ns,
+                    Err(_) => break,
+                };
+
+                match &mut next_state {
+                    Some(ClientState::Unbound) | None => {
+                        error!("Invalid state, bind did not return an authenticated state!");
+                        break;
+                    }
+                    Some(ClientState::Authenticated {
+                        dn,
+                        display_dn,
+                        config,
+                        ref mut client,
+                    }) => {
+                        let search_req = SearchRequest {
+                            sr,
+                            msgid,
+                            ctrl,
+                            dn,
+                            display_dn,
+                            config,
+                            client,
+                        };
+                        match search(&mut w, &app_state, search_req).await {
+                            Ok(()) => {}
+                            Err(_) => break,
+                        }
+                    }
+                }
+
+                next_state
+            }
+
             // Authenticated message handler.
             //  - Search
             (
@@ -497,7 +547,7 @@ pub async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                 };
 
                 match search(&mut w, &app_state, search_req).await {
-                    Ok(ns) => ns,
+                    Ok(()) => None,
                     Err(_) => break,
                 }
             }
@@ -520,7 +570,7 @@ pub async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
             },
             // Unknown message handler.
             (_, msg) => {
-                debug!(?msg);
+                debug!(?msg, "Invalid message state, triggering disconnection");
                 // Return a disconnect.
                 break;
             }
