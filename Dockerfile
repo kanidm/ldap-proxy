@@ -1,15 +1,15 @@
 FROM opensuse/tumbleweed:latest AS ref_repo
 
-RUN sed -i -E 's/https?:\/\/download.opensuse.org/https:\/\/mirrorcache.firstyear.id.au/g' /etc/zypp/repos.d/*.repo && \
+RUN sed -i -E 's/https?:\/\/download.opensuse.org/http:\/\/suse-updates.int.firstyear.id.au\/opensuse/g' /etc/zypp/repos.d/*.repo && \
     zypper --gpg-auto-import-keys ref --force
 
 # // setup the builder pkgs
 FROM ref_repo AS build_base
-RUN zypper install -y cargo rust gcc libopenssl-3-devel sccache perl make gawk
+RUN zypper install -y cargo rust gcc sccache
 
 # // setup the runner pkgs
 FROM ref_repo AS run_base
-RUN zypper install -y sqlite3 openssl-3 timezone iputils iproute2 openldap2-client
+RUN zypper install -y timezone iputils iproute2 openldap2-client
 COPY SUSE_CA_Root.pem /etc/pki/trust/anchors/
 RUN /usr/sbin/update-ca-certificates
 
