@@ -18,7 +18,7 @@ use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_rustls::{client::TlsStream, TlsConnector};
 use tokio_util::codec::{FramedRead, FramedWrite};
-use tracing::{debug, error, info, span, trace, warn, Level};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 type CR = ReadHalf<TlsStream<TcpStream>>;
 type CW = WriteHalf<TlsStream<TcpStream>>;
@@ -44,10 +44,14 @@ impl CachedValue {
     }
 }
 
+// We allow the large enum to exist as we always do a mem swap from unbound to authenticated, so
+// the memory layout penalty doesn't apply.
+#[allow(clippy::large_enum_variant)]
 enum ClientState {
     Unbound,
     Authenticated {
         dn: String,
+        display_dn: String,
         config: DnConfig,
         client: BasicLdapClient,
     },
@@ -67,6 +71,360 @@ fn bind_operror(msgid: i32, msg: &str) -> LdapMsg {
         }),
         ctrl: vec![],
     }
+}
+
+#[instrument(level = "info", skip_all)]
+async fn bind<W: AsyncWrite + Unpin>(
+    w: &mut FramedWrite<W, LdapCodec>,
+    app_state: &AppState,
+    mut lbr: LdapBindRequest,
+    msgid: i32,
+    ctrl: Vec<LdapControl>,
+) -> Result<Option<ClientState>, LdapError> {
+    trace!(?lbr);
+    // Is the requested bind dn valid per our map?
+    let config = match app_state.binddn_map.get(&lbr.dn) {
+        Some(dnconfig) => {
+            // They have a config! They can proceed.
+            dnconfig.clone()
+        }
+        None => {
+            if app_state.allow_all_bind_dns {
+                // All bind dns are allow, return a default config.
+                DnConfig::default()
+            } else {
+                // Bind dns are filtered, sad trombone time.
+                let resp_msg = bind_operror(msgid, "unable to bind");
+                w.send(resp_msg).await.map_err(|err| {
+                    error!(?err, "Unable to send response");
+                    LdapError::Transport
+                })?;
+                return Ok(None);
+            }
+        }
+    };
+
+    // Okay, we have a dnconfig, so they are allowed to proceed. Lets
+    // now setup the client for their session, and anything else we
+    // need to configure.
+
+    let dn = lbr.dn.clone();
+    if let Some(map_to_dn) = config.map_to_dn.clone() {
+        // The dn from the client is internally remapped by the proxy. This
+        // means we need to modify the bind request to update the dn and
+        // the credential used.
+
+        lbr.dn = map_to_dn.clone();
+
+        if let Some(map_to_secret) = config.map_to_secret.clone() {
+            lbr.cred = LdapBindCred::Simple(map_to_secret);
+        }
+    };
+
+    let display_dn = if dn.is_empty() {
+        "anonymous"
+    } else {
+        dn.as_str()
+    };
+
+    let display_dn = if let Some(map_to_dn) = config.map_to_dn.as_ref() {
+        format!("{} (mapped to {})", display_dn, map_to_dn)
+    } else {
+        display_dn.to_string()
+    };
+
+    // We need the client to connect *and* bind to proceed here!
+    let mut client = match BasicLdapClient::build(
+        &app_state.addrs,
+        &app_state.tls_hostname,
+        &app_state.tls_connector,
+        app_state.max_proxy_ber_size,
+    )
+    .await
+    {
+        Ok(c) => c,
+        Err(e) => {
+            error!(?e, "A client build error has occurred.");
+            let resp_msg = bind_operror(msgid, "unable to bind");
+            w.send(resp_msg).await.map_err(|err| {
+                error!(?err, "Unable to send response");
+                LdapError::Transport
+            })?;
+            // Always bail.
+            return Ok(None);
+        }
+    };
+
+    let valid = match client.bind(lbr, ctrl).await {
+        Ok((bind_resp, ctrl)) => {
+            // Almost there, lets check the bind result.
+            let valid = bind_resp.res.code == LdapResultCode::Success;
+
+            let resp_msg = LdapMsg {
+                msgid,
+                op: LdapOp::BindResponse(bind_resp),
+                ctrl,
+            };
+            w.send(resp_msg).await.map_err(|err| {
+                error!(?err, "Unable to send response");
+                LdapError::Transport
+            })?;
+            valid
+        }
+        Err(e) => {
+            error!(?e, "A client bind error has occurred");
+            let resp_msg = bind_operror(msgid, "unable to bind");
+            w.send(resp_msg).await.map_err(|err| {
+                error!(?err, "Unable to send response");
+                LdapError::Transport
+            })?;
+            // Always bail.
+            return Ok(None);
+        }
+    };
+
+    if valid {
+        info!("Successful bind for {}", display_dn);
+        Ok(Some(ClientState::Authenticated {
+            dn,
+            display_dn,
+            config,
+            client,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+#[instrument(level = "info", skip_all)]
+async fn unbind() {}
+
+struct SearchRequest<'a> {
+    sr: LdapSearchRequest,
+    msgid: i32,
+    ctrl: Vec<LdapControl>,
+
+    dn: &'a str,
+    display_dn: &'a str,
+    config: &'a DnConfig,
+    client: &'a mut BasicLdapClient,
+}
+
+#[instrument(level = "info", skip_all)]
+async fn search<W: AsyncWrite + Unpin>(
+    w: &mut FramedWrite<W, LdapCodec>,
+    app_state: &AppState,
+    search_request: SearchRequest<'_>,
+) -> Result<Option<ClientState>, LdapError> {
+    let SearchRequest {
+        sr,
+        msgid,
+        ctrl,
+        dn,
+        display_dn,
+        config,
+        client,
+    } = search_request;
+
+    // Pre check if the search is allowed for this dn / scope / filter
+    if config.allowed_queries.is_empty() {
+        // All queries are allowed.
+        debug!("All queries are allowed");
+    } else {
+        // Let's check the query details.
+        let allow_key = (
+            sr.base.clone(),
+            sr.scope.clone(),
+            LdapFilterWrapper {
+                inner: sr.filter.clone(),
+            },
+        );
+
+        if config.allowed_queries.contains(&allow_key) {
+            // Good to proceed.
+            debug!("Query is granted");
+        } else {
+            warn!(
+                ?allow_key,
+                "Requested query is not allowed for {}", display_dn
+            );
+            // If not, send an empty result.
+            w.send(LdapMsg {
+                msgid,
+                op: LdapOp::SearchResultDone(LdapResult {
+                    code: LdapResultCode::Success,
+                    matcheddn: "".to_string(),
+                    message: "".to_string(),
+                    referral: vec![],
+                }),
+                ctrl,
+            })
+            .await
+            .map_err(|err| {
+                error!(?err, "Unable to send response");
+                LdapError::Transport
+            })?;
+
+            return Ok(None);
+        }
+    };
+
+    // This is done like this to facilitate a cache mechanism in future.
+    //
+    // Cache will need to key on:
+    //    bind_dn
+    //    base
+    //    scope
+    //    deref aliases
+    //    types only
+    //    filter
+    //    attrs
+    //   search controls
+    //
+    // Which is a lot, but it's everything that controls to results to
+    // ensure we don't introduce corruption.
+
+    let now = Instant::now();
+
+    // get the read txn.
+    let mut cache_read_txn = app_state.cache.read();
+
+    let cache_key = SearchCacheKey {
+        bind_dn: dn.to_string(),
+        search: sr.clone(),
+        ctrl: ctrl.clone(),
+    };
+    debug!(?cache_key);
+
+    let maybe_results = cache_read_txn.get(&cache_key).and_then(|cache_value| {
+        if cache_value.valid_until > now {
+            Some(cache_value.clone())
+        } else {
+            debug!("Cache item expired");
+            None
+        }
+    });
+
+    let was_cache_miss = maybe_results.is_none();
+
+    debug!("cache hit {}", !was_cache_miss);
+
+    let (entries, result, ctrl) = match maybe_results {
+        Some(CachedValue {
+            valid_until: _,
+            entries,
+            result,
+            ctrl,
+        }) => (entries, result, ctrl),
+        None => {
+            match client.search(sr, ctrl).await {
+                Ok(data) => data,
+                Err(e) => {
+                    error!(?e, "A client search error has occurred");
+                    let resp_msg = bind_operror(msgid, "unable to search");
+                    w.send(resp_msg).await.map_err(|err| {
+                        error!(?err, "Unable to send response");
+                        LdapError::Transport
+                    })?;
+
+                    // Error sent, return with no state change.
+                    return Ok(None);
+                }
+            }
+        }
+    };
+
+    // Update cache if needed.
+    if was_cache_miss {
+        let cache_value = CachedValue {
+            valid_until: now + app_state.cache_entry_timeout,
+            entries: entries.clone(),
+            result: result.clone(),
+            ctrl: ctrl.clone(),
+        };
+        if let Some(cache_value_size) = NonZeroUsize::new(cache_value.size()) {
+            debug!("Adding entry of size {} to cache", cache_value_size);
+            cache_read_txn.insert_sized(cache_key, cache_value, cache_value_size);
+        } else {
+            error!("Invalid entry size, unable to add to cache");
+        }
+    }
+
+    for (entry, ctrl) in entries {
+        w.send(LdapMsg {
+            msgid,
+            op: LdapOp::SearchResultEntry(entry),
+            ctrl,
+        })
+        .await
+        .map_err(|err| {
+            error!(?err, "Unable to send response");
+            LdapError::Transport
+        })?;
+    }
+
+    w.send(LdapMsg {
+        msgid,
+        op: LdapOp::SearchResultDone(result),
+        ctrl,
+    })
+    .await
+    .map_err(|err| {
+        error!(?err, "Unable to send response");
+        LdapError::Transport
+    })?;
+
+    // Try and quiesce now.
+    app_state.cache.try_quiesce();
+
+    // No state change
+    Ok(None)
+}
+
+#[instrument(level = "info", skip_all)]
+async fn extop<W: AsyncWrite + Unpin>(
+    w: &mut FramedWrite<W, LdapCodec>,
+
+    ler: LdapExtendedRequest,
+    msgid: i32,
+
+    display_dn: &str,
+) -> Result<Option<ClientState>, LdapError> {
+    let op = match ler.name.as_str() {
+        "1.3.6.1.4.1.4203.1.11.3" => LdapOp::ExtendedResponse(LdapExtendedResponse {
+            res: LdapResult {
+                code: LdapResultCode::Success,
+                matcheddn: "".to_string(),
+                message: "".to_string(),
+                referral: vec![],
+            },
+            name: None,
+            value: Some(Vec::from(display_dn)),
+        }),
+        _ => LdapOp::ExtendedResponse(LdapExtendedResponse {
+            res: LdapResult {
+                code: LdapResultCode::OperationsError,
+                matcheddn: "".to_string(),
+                message: "".to_string(),
+                referral: vec![],
+            },
+            name: None,
+            value: None,
+        }),
+    };
+
+    w.send(LdapMsg {
+        msgid,
+        op,
+        ctrl: vec![],
+    })
+    .await
+    .map_err(|err| {
+        error!(?err, "Unable to send response");
+        LdapError::Transport
+    })?;
+
+    Ok(None)
 }
 
 pub async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
@@ -96,94 +454,10 @@ pub async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                     op: LdapOp::BindRequest(lbr),
                     ctrl,
                 },
-            ) => {
-                let span = span!(Level::INFO, "bind");
-                let _enter = span.enter();
-
-                trace!(?lbr);
-                // Is the requested bind dn valid per our map?
-                let config = match app_state.binddn_map.get(&lbr.dn) {
-                    Some(dnconfig) => {
-                        // They have a config! They can proceed.
-                        dnconfig.clone()
-                    }
-                    None => {
-                        if app_state.allow_all_bind_dns {
-                            // All bind dns are allow, return a default config.
-                            DnConfig::default()
-                        } else {
-                            // Bind dns are filtered, sad trombone time.
-                            let resp_msg = bind_operror(msgid, "unable to bind");
-                            if w.send(resp_msg).await.is_err() {
-                                error!("Unable to send response");
-                                break;
-                            }
-                            continue;
-                        }
-                    }
-                };
-
-                // Okay, we have a dnconfig, so they are allowed to proceed. Lets
-                // now setup the client for their session, and anything else we
-                // need to configure.
-
-                let dn = lbr.dn.clone();
-
-                // We need the client to connect *and* bind to proceed here!
-                let mut client = match BasicLdapClient::build(
-                    &app_state.addrs,
-                    &app_state.tls_hostname,
-                    &app_state.tls_connector,
-                    app_state.max_proxy_ber_size,
-                )
-                .await
-                {
-                    Ok(c) => c,
-                    Err(e) => {
-                        error!(?e, "A client build error has occurred.");
-                        let resp_msg = bind_operror(msgid, "unable to bind");
-                        if w.send(resp_msg).await.is_err() {
-                            error!("Unable to send response");
-                        }
-                        // Always bail.
-                        break;
-                    }
-                };
-
-                let valid = match client.bind(lbr, ctrl).await {
-                    Ok((bind_resp, ctrl)) => {
-                        // Almost there, lets check the bind result.
-                        let valid = bind_resp.res.code == LdapResultCode::Success;
-
-                        let resp_msg = LdapMsg {
-                            msgid,
-                            op: LdapOp::BindResponse(bind_resp),
-                            ctrl,
-                        };
-                        if w.send(resp_msg).await.is_err() {
-                            error!("Unable to send response");
-                            break;
-                        }
-                        valid
-                    }
-                    Err(e) => {
-                        error!(?e, "A client bind error has occurred");
-                        let resp_msg = bind_operror(msgid, "unable to bind");
-                        if w.send(resp_msg).await.is_err() {
-                            error!("Unable to send response");
-                        }
-                        // Always bail.
-                        break;
-                    }
-                };
-
-                if valid {
-                    info!("Successful bind for {}", dn);
-                    Some(ClientState::Authenticated { dn, config, client })
-                } else {
-                    None
-                }
-            }
+            ) => match bind(&mut w, &app_state, lbr, msgid, ctrl).await {
+                Ok(ns) => ns,
+                Err(_) => break,
+            },
             // Unbinds are always actioned.
             (
                 _,
@@ -193,7 +467,7 @@ pub async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                     ctrl: _,
                 },
             ) => {
-                trace!("unbind");
+                unbind().await;
                 break;
             }
 
@@ -202,6 +476,7 @@ pub async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
             (
                 ClientState::Authenticated {
                     dn,
+                    display_dn,
                     config,
                     ref mut client,
                 },
@@ -211,164 +486,26 @@ pub async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                     ctrl,
                 },
             ) => {
-                let span = span!(Level::INFO, "search");
-                let _enter = span.enter();
-
-                // Pre check if the search is allowed for this dn / scope / filter
-                if config.allowed_queries.is_empty() {
-                    // All queries are allowed.
-                    debug!("All queries are allowed");
-                } else {
-                    // Let's check the query details.
-                    let allow_key = (
-                        sr.base.clone(),
-                        sr.scope.clone(),
-                        LdapFilterWrapper {
-                            inner: sr.filter.clone(),
-                        },
-                    );
-
-                    if config.allowed_queries.contains(&allow_key) {
-                        // Good to proceed.
-                        debug!("Query is granted");
-                    } else {
-                        warn!(?allow_key, "Requested query is not allowed for {}", dn);
-                        // If not, send an empty result.
-                        if w.send(LdapMsg {
-                            msgid,
-                            op: LdapOp::SearchResultDone(LdapResult {
-                                code: LdapResultCode::Success,
-                                matcheddn: "".to_string(),
-                                message: "".to_string(),
-                                referral: vec![],
-                            }),
-                            ctrl,
-                        })
-                        .await
-                        .is_err()
-                        {
-                            error!("Unable to send response");
-                        }
-                        // Always bail.
-                        break;
-                    }
-                };
-
-                // This is done like this to facilitate a cache mechanism in future.
-                //
-                // Cache will need to key on:
-                //    bind_dn
-                //    base
-                //    scope
-                //    deref aliases
-                //    types only
-                //    filter
-                //    attrs
-                //   search controls
-                //
-                // Which is a lot, but it's everything that controls to results to
-                // ensure we don't introduce corruption.
-
-                let now = Instant::now();
-
-                // get the read txn.
-                let mut cache_read_txn = app_state.cache.read();
-
-                let cache_key = SearchCacheKey {
-                    bind_dn: dn.clone(),
-                    search: sr.clone(),
-                    ctrl: ctrl.clone(),
-                };
-                debug!(?cache_key);
-
-                let maybe_results = cache_read_txn.get(&cache_key).and_then(|cache_value| {
-                    if cache_value.valid_until > now {
-                        Some(cache_value.clone())
-                    } else {
-                        debug!("Cache item expired");
-                        None
-                    }
-                });
-
-                let was_cache_miss = maybe_results.is_none();
-
-                debug!("cache hit {}", !was_cache_miss);
-
-                let (entries, result, ctrl) = match maybe_results {
-                    Some(CachedValue {
-                        valid_until: _,
-                        entries,
-                        result,
-                        ctrl,
-                    }) => (entries, result, ctrl),
-                    None => {
-                        match client.search(sr, ctrl).await {
-                            Ok(data) => data,
-                            Err(e) => {
-                                error!(?e, "A client search error has occurred");
-                                let resp_msg = bind_operror(msgid, "unable to search");
-                                if w.send(resp_msg).await.is_err() {
-                                    error!("Unable to send response");
-                                }
-                                // Always bail.
-                                break;
-                            }
-                        }
-                    }
-                };
-
-                // Update cache if needed.
-                if was_cache_miss {
-                    let cache_value = CachedValue {
-                        valid_until: now + app_state.cache_entry_timeout,
-                        entries: entries.clone(),
-                        result: result.clone(),
-                        ctrl: ctrl.clone(),
-                    };
-                    if let Some(cache_value_size) = NonZeroUsize::new(cache_value.size()) {
-                        debug!("Adding entry of size {} to cache", cache_value_size);
-                        cache_read_txn.insert_sized(cache_key, cache_value, cache_value_size);
-                    } else {
-                        error!("Invalid entry size, unable to add to cache");
-                    }
-                }
-
-                for (entry, ctrl) in entries {
-                    if w.send(LdapMsg {
-                        msgid,
-                        op: LdapOp::SearchResultEntry(entry),
-                        ctrl,
-                    })
-                    .await
-                    .is_err()
-                    {
-                        error!("Unable to send response");
-                        break;
-                    }
-                }
-
-                if w.send(LdapMsg {
+                let search_req = SearchRequest {
+                    sr,
                     msgid,
-                    op: LdapOp::SearchResultDone(result),
                     ctrl,
-                })
-                .await
-                .is_err()
-                {
-                    error!("Unable to send response");
-                    break;
+                    dn,
+                    display_dn,
+                    config,
+                    client,
+                };
+
+                match search(&mut w, &app_state, search_req).await {
+                    Ok(ns) => ns,
+                    Err(_) => break,
                 }
-
-                // Try and quiesce now.
-                app_state.cache.try_quiesce();
-
-                // No state change
-                None
             }
-            // Extended Requests - Generally has whoami.
+            // Extended Requests - Generally whoami.
             (
                 ClientState::Authenticated {
-                    dn,
+                    dn: _,
+                    display_dn,
                     config: _,
                     client: _,
                 },
@@ -377,44 +514,10 @@ pub async fn client_process<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
                     op: LdapOp::ExtendedRequest(ler),
                     ctrl: _,
                 },
-            ) => {
-                let op = match ler.name.as_str() {
-                    "1.3.6.1.4.1.4203.1.11.3" => LdapOp::ExtendedResponse(LdapExtendedResponse {
-                        res: LdapResult {
-                            code: LdapResultCode::Success,
-                            matcheddn: "".to_string(),
-                            message: "".to_string(),
-                            referral: vec![],
-                        },
-                        name: None,
-                        value: Some(Vec::from(dn.as_str())),
-                    }),
-                    _ => LdapOp::ExtendedResponse(LdapExtendedResponse {
-                        res: LdapResult {
-                            code: LdapResultCode::OperationsError,
-                            matcheddn: "".to_string(),
-                            message: "".to_string(),
-                            referral: vec![],
-                        },
-                        name: None,
-                        value: None,
-                    }),
-                };
-
-                if w.send(LdapMsg {
-                    msgid,
-                    op,
-                    ctrl: vec![],
-                })
-                .await
-                .is_err()
-                {
-                    error!("Unable to send response");
-                    break;
-                }
-
-                None
-            }
+            ) => match extop(&mut w, ler, msgid, display_dn).await {
+                Ok(ns) => ns,
+                Err(_) => break,
+            },
             // Unknown message handler.
             (_, msg) => {
                 debug!(?msg);

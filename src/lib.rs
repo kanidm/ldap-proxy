@@ -38,6 +38,8 @@ pub struct AppState {
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct DnConfig {
+    pub map_to_dn: Option<String>,
+    pub map_to_secret: Option<String>,
     #[serde(default)]
     pub allowed_queries: HashSet<(String, LdapSearchScope, LdapFilterWrapper)>,
 }

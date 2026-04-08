@@ -1,6 +1,6 @@
 [package]
 name = "ldap-proxy"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -17,7 +17,6 @@ futures-util = { version = "^0.3.32", features = ["sink"] }
 haproxy-protocol = { version = "0.0.4", features = ["tokio"] }
 hashbrown = { version = "0.16", features = ["serde"] }
 ldap3_proto = { version = "0.7.0", features = ["serde"] }
-mimalloc = "0.1.48"
 rustls = "0.23.37"
 serde = { version = "^1.0.228", features = ["derive"] }
 serde_with = { version = "3.18.0", features = ["macros"] }
