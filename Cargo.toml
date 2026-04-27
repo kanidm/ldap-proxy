@@ -17,15 +17,15 @@ futures-util = { version = "^0.3.32", features = ["sink"] }
 haproxy-protocol = { version = "0.0.4", features = ["tokio"] }
 hashbrown = { version = "0.17", features = ["serde"] }
 ldap3_proto = { version = "0.7.0", features = ["serde"] }
-rustls = "0.23.37"
+rustls = "0.23.39"
 serde = { version = "^1.0.228", features = ["derive"] }
 serde_with = { version = "3.18.0", features = ["macros"] }
-tokio = { version = "^1.51.1", features = ["rt", "rt-multi-thread", "macros", "net", "signal", "io-util"] }
+tokio = { version = "^1.52.1", features = ["rt", "rt-multi-thread", "macros", "net", "signal", "io-util"] }
 tokio-rustls = "0.26.4"
 tokio-util = { version = "^0.7.18", features = ["codec"] }
 toml = "^1.1.2"
 tracing = { version = "^0.1.44", features = ["max_level_trace", "release_max_level_debug"] }
 tracing-forest = { version = "0.3.1", features = ["chrono", "smallvec", "tokio"] }
 url = { version = "^2.5.8", features = ["serde"] }
-uuid = { version = "1.23.0", features = ["serde"] }
+uuid = { version = "1.23.1", features = ["serde"] }
 
