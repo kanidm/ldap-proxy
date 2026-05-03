@@ -16,10 +16,10 @@ clap = { version = "4.6", features = ["derive", "env"] }
 futures-util = { version = "^0.3.32", features = ["sink"] }
 haproxy-protocol = { version = "0.0.4", features = ["tokio"] }
 hashbrown = { version = "0.17", features = ["serde"] }
-ldap3_proto = { version = "0.7.0", features = ["serde"] }
-rustls = "0.23.39"
+ldap3_proto = { version = "0.7.1", features = ["serde"] }
+rustls = "0.23.40"
 serde = { version = "^1.0.228", features = ["derive"] }
-serde_with = { version = "3.18.0", features = ["macros"] }
+serde_with = { version = "3.19.0", features = ["macros"] }
 tokio = { version = "^1.52.1", features = ["rt", "rt-multi-thread", "macros", "net", "signal", "io-util"] }
 tokio-rustls = "0.26.4"
 tokio-util = { version = "^0.7.18", features = ["codec"] }
