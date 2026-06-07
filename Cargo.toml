@@ -19,7 +19,7 @@ hashbrown = { version = "0.17", features = ["serde"] }
 ldap3_proto = { version = "0.7.1", features = ["serde"] }
 rustls = "0.23.40"
 serde = { version = "^1.0.228", features = ["derive"] }
-serde_with = { version = "3.20.0", features = ["macros"] }
+serde_with = { version = "3.21.0", features = ["macros"] }
 tokio = { version = "^1.52.3", features = ["rt", "rt-multi-thread", "macros", "net", "signal", "io-util"] }
 tokio-rustls = "0.26.4"
 tokio-util = { version = "^0.7.18", features = ["codec"] }
