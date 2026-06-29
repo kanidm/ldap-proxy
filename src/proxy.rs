@@ -652,8 +652,8 @@ impl BasicLdapClient {
 
         let (r, w) = tokio::io::split(tlsstream);
 
-        let w = FramedWrite::new(w, LdapCodec::new(max_ber_size));
-        let r = FramedRead::new(r, LdapCodec::new(max_ber_size));
+        let w = FramedWrite::new(w, LdapCodec::new(max_ber_size, None));
+        let r = FramedRead::new(r, LdapCodec::new(max_ber_size, None));
 
         info!("Connected to remote ldap server");
         Ok(BasicLdapClient {

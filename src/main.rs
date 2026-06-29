@@ -103,8 +103,8 @@ async fn ldaps_tls_acceptor(
     };
 
     let (r, w) = tokio::io::split(tlsstream);
-    let r = FramedRead::new(r, LdapCodec::new(max_incoming_ber_size));
-    let w = FramedWrite::new(w, LdapCodec::new(max_incoming_ber_size));
+    let r = FramedRead::new(r, LdapCodec::new(max_incoming_ber_size, None));
+    let w = FramedWrite::new(w, LdapCodec::new(max_incoming_ber_size, None));
 
     tokio::spawn(proxy::client_process(
         r,
