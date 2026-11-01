@@ -802,9 +802,9 @@ dependencies = [
 
 [[package]]
 name = "ldap3_lber"
-version = "0.8.1"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf85b08fb467260c0f8f305b30e819cf3e9584f0f50f2879fbec9bc58f639504"
+checksum = "604412430e6b31b59308bf535abda1cab41cbff8047f8c6054527ea8aa8a515c"
 dependencies = [
  "bytes",
  "nom 7.1.3",
@@ -812,9 +812,9 @@ dependencies = [
 
 [[package]]
 name = "ldap3_proto"
-version = "0.8.1"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "105256b138a7ed84ac1ae375870eae23be5f8fed16ca172ae5f1c1aa37bd4242"
+checksum = "0c6ad762d9cf62b815ed8022a088c78733f7b25059ee76fe8cd0de8df609ebd6"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -1606,9 +1606,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.28.0"
+version = "1.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7cc1186384beb7dd8eedea376413fd654937285ea6c9cfbb928dc3043ea4b606"
+checksum = "4a0e2d11620c50695fe12bbbfde96b3477fe606e7284c22d505c12ce51214514"
 dependencies = [
  "js-sys",
  "serde_core",
